@@ -12,6 +12,7 @@ public enum SettingsPane: Hashable, Sendable {
     case mouseScroll
     case mouseDevices
     case mouseGestures
+    case windows
     case general
 
     public var title: String {
@@ -25,6 +26,7 @@ public enum SettingsPane: Hashable, Sendable {
         case .mouseScroll: return tr("Scrolling", "Cuộn")
         case .mouseDevices: return tr("Devices", "Thiết bị")
         case .mouseGestures: return tr("Gestures", "Cử chỉ")
+        case .windows: return tr("Windows", "Cửa sổ")
         case .general: return tr("General", "Chung")
         }
     }
@@ -50,6 +52,8 @@ public enum SettingsPane: Hashable, Sendable {
                                       "Cài đặt cuộn riêng cho từng con chuột.")
         case .mouseGestures: return tr("Switch Spaces by holding a button and dragging.",
                                        "Đổi Space bằng cách giữ một nút rồi kéo.")
+        case .windows: return tr("Snap windows to halves and corners, and send them to another display.",
+                                 "Chia cửa sổ theo nửa, góc phần tư và chuyển sang màn hình khác.")
         case .general: return tr("Language, startup and everyday utilities.",
                                  "Ngôn ngữ, khởi động và các tiện ích thường dùng.")
         }
@@ -67,6 +71,7 @@ public enum SettingsPane: Hashable, Sendable {
         case .mouseScroll: return .green
         case .mouseDevices: return .brown
         case .mouseGestures: return .cyan
+        case .windows: return .mint
         case .general: return .gray
         }
     }
@@ -82,6 +87,7 @@ public enum SettingsPane: Hashable, Sendable {
         case .mouseScroll: return "scroll"
         case .mouseDevices: return "cable.connector"
         case .mouseGestures: return "hand.draw"
+        case .windows: return "rectangle.split.2x1"
         case .general: return "gearshape"
         }
     }

@@ -3,6 +3,7 @@ import HiDisplayFeature
 import MousseFeature
 import OneMacUI
 import SwiftUI
+import WindowKit
 
 /// The full settings window: sidebar of displays, display tools, mouse pages and app settings.
 struct SettingsWindow: View {
@@ -27,6 +28,7 @@ struct SettingsWindow: View {
                     ForEach(Self.displayTools, id: \.self, content: row)
                 }
                 Section(tr("Mouse", "Chuột")) { ForEach(Self.mousePages, id: \.self, content: row) }
+                Section(tr("Windows", "Cửa sổ")) { row(.windows) }
                 Section("OneMac") { row(.general) }
             }
             .listStyle(.sidebar)
@@ -54,6 +56,8 @@ struct SettingsWindow: View {
             HiDisplayPaneView(pane: pane)
         case .mouseGeneral, .mouseButtons, .mouseScroll, .mouseDevices, .mouseGestures:
             MousePaneView(pane: pane)
+        case .windows:
+            WindowsPage()
         case .general:
             GeneralPane()
         }

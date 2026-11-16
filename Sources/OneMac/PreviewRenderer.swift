@@ -20,7 +20,7 @@ struct PreviewRenderer {
     private static let panes: [String: SettingsPane] = [
         "mouseGeneral": .mouseGeneral, "mouseButtons": .mouseButtons, "mouseScroll": .mouseScroll,
         "mouseDevices": .mouseDevices, "mouseGestures": .mouseGestures, "general": .general,
-        "hiDPI": .hiDPI, "brightnessKeys": .brightnessKeys, "displayDiagnostics": .displayDiagnostics,
+        "windows": .windows, "hiDPI": .hiDPI, "brightnessKeys": .brightnessKeys, "displayDiagnostics": .displayDiagnostics,
     ]
 
     static var requested: PreviewRenderer? {

@@ -3,6 +3,7 @@ import HiDisplayFeature
 import MousseFeature
 import OneMacUI
 import SwiftUI
+import WindowKit
 
 /// OneMac — displays (HiDPI, DDC brightness), mouse, battery, temperatures, fans and keep-awake in
 /// one menu-bar app.
@@ -47,6 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FanController.shared.start()
         AccessibilityRecovery.clearStaleGrantIfNeeded()
         MouseModule.start()
+        WindowSnapping.shared.start()
         Task { await HiDisplayModule.start() }
     }
 
@@ -59,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FanController.shared.restoreSystemSync()
         KeepAwake.shared.deactivate()
         MouseModule.stop()
+        WindowSnapping.shared.stop()
         Task {
             await HiDisplayModule.stop()
             reply(sender)

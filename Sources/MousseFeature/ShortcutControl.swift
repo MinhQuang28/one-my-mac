@@ -21,6 +21,11 @@ struct ShortcutControl: View {
                             Button(preset.displayName) { action = preset }
                         }
                     }
+                    Section(tr("Windows", "Cửa sổ")) {
+                        ForEach(RemapAction.windowPresets, id: \.self) { preset in
+                            Button(preset.displayName) { action = preset }
+                        }
+                    }
                     Divider()
                     Button(tr("Record Custom Shortcut…", "Ghi phím tắt tuỳ chỉnh…")) { startRecording() }
                 }

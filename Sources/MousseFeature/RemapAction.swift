@@ -1,6 +1,7 @@
 import CoreGraphics
 import OneMacUI
 import AppKit
+import WindowKit
 
 /// What a remapped mouse button does. Keystroke actions cover spaces/Mission Control and any custom
 /// shortcut; media keys cover volume/playback; `launchpad` opens Launchpad. All via public APIs.
@@ -8,6 +9,8 @@ enum RemapAction: Codable, Equatable, Hashable, Sendable {
     case keyStroke(keyCode: UInt16, control: Bool, option: Bool, command: Bool, shift: Bool)
     case mediaKey(MediaKey)
     case launchpad
+    /// Snap or move the focused window (see WindowKit).
+    case window(WindowAction)
 
     // Keystroke presets (macOS default shortcuts)
     static let spaceLeft      = keyStroke(keyCode: 0x7B, control: true, option: false, command: false, shift: false) // Ctrl+←
@@ -21,6 +24,9 @@ enum RemapAction: Codable, Equatable, Hashable, Sendable {
          .mediaKey(.volumeDown), .mediaKey(.volumeUp), .mediaKey(.mute),
          .mediaKey(.playPause), .mediaKey(.previous), .mediaKey(.next)]
     }
+
+    /// Window actions offered in the Settings picker, in their own group.
+    static var windowPresets: [RemapAction] { WindowAction.allCases.map(RemapAction.window) }
 
     /// Serial queue so keystrokes are synthesized OFF the event-tap thread (posting from inside the
     /// tap callback is unreliable for system hotkeys and would stall the tap). A FRESH event source
@@ -86,6 +92,10 @@ enum RemapAction: Codable, Equatable, Hashable, Sendable {
         case let .mediaKey(key):
             key.post()
 
+        case let .window(action):
+            // Called from the event-tap thread; the Accessibility calls belong on the main thread.
+            DispatchQueue.main.async { WindowSnapping.shared.perform(action) }
+
         case .launchpad:
             // Launchpad.app was removed in macOS 26+. Trigger it via its symbolic hotkey instead
             // (works where the OS still has Launchpad; harmless no-op otherwise).
@@ -110,6 +120,8 @@ enum RemapAction: Codable, Equatable, Hashable, Sendable {
             return s + KeyCodes.name(for: code)
         case let .mediaKey(key):
             return key.name
+        case let .window(action):
+            return tr("Window: \(action.title)", "Cửa sổ: \(action.title)")
         case .launchpad:
             return "Launchpad"
         }

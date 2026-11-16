@@ -3,6 +3,7 @@ import HiDisplayFeature
 import OneMacUI
 import ServiceManagement
 import SwiftUI
+import WindowKit
 
 /// The Utilities tab: keep-awake, launch at login, brightness keys and display recovery.
 struct UtilityCards: View {
@@ -11,6 +12,7 @@ struct UtilityCards: View {
     var body: some View {
         VStack(spacing: Gap.sm + 2) {
             KeepAwakeCard()
+            WindowSnapCard()
             Card {
                 CardHeader(icon: "power", tint: .green, title: tr("Launch at login", "Khởi động cùng macOS"),
                            subtitle: login.detail) {

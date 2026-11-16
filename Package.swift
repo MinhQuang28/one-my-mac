@@ -1,7 +1,7 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
-// OneMac = HiDisplay (display / HiDPI / DDC) + Mousse (mouse) + hardware (battery, fans, keep-awake)
+// OneMac = HiDisplay (display / HiDPI / DDC) + Mousse (mouse) + windows + hardware (battery, fans, keep-awake)
 // in one menu-bar app. Each part stays its own module so the original code keeps its language mode
 // and tests; the OneMac target only composes them.
 let package = Package(
@@ -22,8 +22,12 @@ let package = Package(
                           path: "Sources/hidisplay-probe",
                           swiftSettings: [.swiftLanguageMode(.v6)]),
 
+        // ---- Windows: snapping and moving between displays ----
+        .target(name: "WindowKit", dependencies: ["OneMacUI"], path: "Sources/WindowKit",
+                swiftSettings: [.swiftLanguageMode(.v5)]),
+
         // ---- Mouse (from Mousse) ----
-        .target(name: "MousseFeature", dependencies: ["OneMacUI"], path: "Sources/MousseFeature",
+        .target(name: "MousseFeature", dependencies: ["OneMacUI", "WindowKit"], path: "Sources/MousseFeature",
                 swiftSettings: [.swiftLanguageMode(.v5)]),
 
         // ---- Hardware: battery, temperatures, fans, keep-awake ----
@@ -37,13 +41,15 @@ let package = Package(
 
         // ---- The app ----
         .executableTarget(name: "OneMac",
-                          dependencies: ["HiDisplayFeature", "MousseFeature", "HardwareKit", "OneMacUI"],
+                          dependencies: ["HiDisplayFeature", "MousseFeature", "HardwareKit", "WindowKit", "OneMacUI"],
                           path: "Sources/OneMac",
                           swiftSettings: [.swiftLanguageMode(.v5)]),
 
         .testTarget(name: "HiDisplayTests", dependencies: ["HiDisplayKit"], path: "Tests/HiDisplayTests",
                     exclude: ["Fixtures"], swiftSettings: [.swiftLanguageMode(.v6)]),
         .testTarget(name: "MousseTests", dependencies: ["MousseFeature"], path: "Tests/MousseTests",
+                    swiftSettings: [.swiftLanguageMode(.v5)]),
+        .testTarget(name: "WindowKitTests", dependencies: ["WindowKit"], path: "Tests/WindowKitTests",
                     swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "HardwareKitTests", dependencies: ["HardwareKit"], path: "Tests/HardwareKitTests",
                     swiftSettings: [.swiftLanguageMode(.v5)]),
