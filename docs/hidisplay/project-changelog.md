@@ -1,0 +1,104 @@
+# Changelog
+
+Newest first. Versions are the value of `AppModel.version`; tags are `v<version>`.
+
+## 0.8.0 — 2026-10-15
+
+### Changed
+- **Settings has a sidebar.** The segmented picker is replaced by a `NavigationSplitView`: displays
+  on the left, one entry each, then HiDPI Overrides, General, Brightness Keys and Diagnostics. Every
+  page is a grouped `Form`. On macOS 26 the sidebar and toolbar pick up Liquid Glass; on macOS 15 it is
+  the classic source list. The window is 760 × 560 minimum. **Reset Dimming** is in the toolbar.
+- **One display page per monitor** replaces the list-and-detail Displays tab: overview, resolution,
+  brightness (with a slider, the controller choice, and the probe results in a disclosure) and
+  identity, including the "This is a separate display" action that was only in the menu.
+- **HiDPI is a three-step wizard**: Choose, Review, Apply, with the actions pinned to the bottom.
+  Review shows the plan *before* the Install button — the file that will be written, whether one is
+  already there and how many of its entries are kept, what is not carried over, and the undo
+  command — using the same `planInstall` the confirmation alert uses. The long warning is one line
+  with a disclosure; validation errors sit next to the Review button they disable.
+- **The selected display is shared.** Choosing a monitor in the sidebar carries to the HiDPI page's
+  picker and back; each tab used to keep its own.
+- **"Keyboard" is now "Brightness Keys"**, which is all it ever configured.
+- Menu and Settings say **"Checking brightness control…"** while a display's first probe runs and
+  **"Waiting for DDC…"** while a known-DDC monitor is held for its firmware, instead of "No brightness
+  control available" for both. `BrightnessCoordinator` publishes a `BrightnessPhase` per display.
+- The menu's brightness slider has a VoiceOver label naming the display, and truncated display names
+  show in full on hover.
+- Install and export errors show the error's description rather than its Swift debug dump.
+
+### Fixed
+- **Errors show where they happened.** One shared `lastError` put a failed diagnostics export under
+  the resolution picker and a failed resolution change on the Diagnostics page. Each now has its own
+  slot, and a refused log-out shows next to the button that asked for it.
+- **Brightness HUD matches macOS 27**: a clear glass capsule (240 × 51 pt), an outlined sun glyph,
+  and a sixteen-segment level bar of tightly spaced, square-cornered white dashes. The segment the
+  level falls inside fills partially, so ⌥ quarter steps stay visible.
+- **No dark ring around the brightness HUD** on macOS 26 and later: the window shadow is off there,
+  since clear glass left it visible only as a dark outline.
+- **Brightness Keys could not be selected in the sidebar.** The permission badge was applied after
+  `.tag`, which stopped the list matching the row to its route.
+- **No sidebar toggle in the Settings toolbar.** The removal was applied to the split view, where it
+  is ignored; it now sits on the sidebar column, the only place it takes effect.
+
+## 0.7.1 — 2026-09-16
+
+Minimum macOS is back down to 15 (Sequoia). 0.7.0 required 26.
+
+### Changed
+- **Settings window uses a segmented section picker** instead of a `TabView`, whose macOS 26 rendering
+  is an oversized Liquid Glass toolbar.
+- **Deployment target macOS 15.** The brightness HUD keeps Liquid Glass on macOS 26 and later behind
+  an availability check; macOS 15 gets the dark HUD material in the same capsule.
+
+## 0.7.0 — 2026-09-14
+
+Breaking: minimum macOS is now 26 (Tahoe). Profile schema 2 migrates automatically on first launch.
+
+### Fixed
+- **Serial numbers no longer appear in logs or diagnostics.** A serial-identified display's profile key
+  carried the raw serial (`-s%08x`); it now carries a truncated SHA-256 of it. Existing profiles, HiDPI
+  profiles and pinned identities are re-keyed on load, so saved brightness and overrides survive.
+- **Stale gamma ramps after a disconnect.** The gamma controller kept factors for departed displays and
+  re-applied them on the next reconfiguration; CoreGraphics reuses display IDs, so the next monitor in
+  that slot inherited the dim, and a replug that then bound DDC kept the ramp underneath. Departed
+  displays are now pruned on settle.
+- **DDC I/O no longer blocks the cooperative thread pool.** `IOAVServiceReadI2C`/`WriteI2C` are
+  synchronous and uncancellable; they now run on a private serial queue per display. The bus token was
+  already held for the whole call (verified, and now asserted by a test) — the earlier concern that a
+  timeout released it mid-transaction was unfounded.
+- **Clean quit flushes profiles properly.** `applicationShouldTerminate` returns `.terminateLater` and
+  awaits the flush instead of blocking the main thread on a semaphore.
+- **Downloads folder access explains itself.** `NSDownloadsFolderUsageDescription` added; a TCC denial
+  no longer looks like a generic install failure.
+- **Privileged install script hardened.** Absolute binary paths, backslash escaping in the AppleScript
+  wrapper, and a refusal to write when an already-existing override root is not owned by the user the
+  script runs as (`/Library` is admin-writable).
+
+### Changed
+- **Brightness HUD redesigned** for macOS 26/27: a Liquid Glass capsule under the menu bar towards the
+  top-right of the display (10% right margin), glyph plus a continuous level bar, instead of the pre-26
+  200-point square.
+- Swift 6 language mode on every target; strict concurrency is now a compile error.
+- Deployment target macOS 26: `AvailabilityCompat.swift` removed, Settings opens via `openSettings`.
+- The Accessibility permission poll is a cancellable task instead of a `Timer`.
+- `CFBundleVersion` is `<version>.<commit count>`, so LaunchServices can tell rebuilds apart.
+- CI pins the Xcode toolchain, uploads the bundle, and a `v*` tag publishes a release with a `.sha256`
+  asset. `package-release.sh` no longer swallows `gh release create` errors and refuses a dirty tree.
+
+### Docs
+- DDC status corrected: verified on a ViewSonic VX2780-2K. Test count 278. Security notes updated to
+  describe the real install script.
+
+## 0.6.5 — 2026-08-26
+- No bright flash at cold boot: known-DDC displays are held instead of downgraded.
+
+## 0.6.4 — 2026-08-18
+- No dimming flash on wake; saved brightness re-asserted. Faster settle, remembered DDC quirks,
+  off-main discovery.
+
+## 0.6.3 — 2026-08-13
+- DDC recovers after monitor sleep/wake.
+
+Earlier history: `git log` — 0.6.0 (DDC works, installer stops destroying overrides), 0.5.0 (Apple
+Silicon only), 0.4.0 (HiDPI overrides and external-display brightness).

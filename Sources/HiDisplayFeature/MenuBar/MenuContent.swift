@@ -1,0 +1,210 @@
+import HiDisplayKit
+import SwiftUI
+
+/// The menu-bar panel: one section per display, then global commands.
+struct MenuContent: View {
+
+    @EnvironmentObject private var model: AppModel
+
+    @Environment(\.openSettings) private var openSettings
+
+    /// Opens the `Settings` scene.
+    ///
+    /// The obvious `NSApp.sendAction(Selector(("showSettingsWindow:")))` silently does nothing from
+    /// inside a `MenuBarExtra`: an accessory app has no key window, so the action finds no target in
+    /// the responder chain and the button appears dead. The app is activated first, without which
+    /// the Settings window can open behind whatever is frontmost.
+    private var settingsButton: some View {
+        Button("Settings…") {
+            NSApp.activate()
+            openSettings()
+        }
+        .keyboardShortcut(",", modifiers: .command)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if model.displays.isEmpty {
+                Text("No displays detected")
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 4)
+            } else {
+                ForEach(model.displays) { display in
+                    DisplaySection(display: display)
+                    if display.id != model.displays.last?.id {
+                        Divider()
+                    }
+                }
+            }
+
+            Divider()
+
+            // Counts only what can be synced: with a laptop plus one monitor there is nothing to
+            // match, since the built-in panel is not this app's to read or write.
+            if model.brightnessManagedDisplays.count > 1 {
+                Button("Sync Displays") { model.syncAllDisplays() }
+            }
+
+            // Always visible, never behind a submenu: this is the command someone needs when their
+            // screen is too dark to navigate a nested menu.
+            Button("Reset Dimming") { model.resetDimming() }
+
+            Divider()
+
+            settingsButton
+            Button("Quit HiDisplay") { NSApplication.shared.terminate(nil) }
+                .keyboardShortcut("q", modifiers: .command)
+        }
+        .padding(12)
+        .frame(width: 300)
+    }
+}
+
+/// One display's row: name, brightness slider, controller and resolution.
+struct DisplaySection: View {
+
+    let display: DisplayDevice
+    @EnvironmentObject private var model: AppModel
+
+    private var brightness: Float { model.brightness.brightness(for: display.id) }
+    private var controller: BrightnessControllerKind? { model.brightness.controller(for: display.id) }
+    private var phase: BrightnessPhase { model.brightness.phase(for: display.id) }
+
+    /// One entry per logical size, so the menu stays short. Refresh-rate choice lives in Settings,
+    /// where there is room to show it without turning this into a two-level menu.
+    ///
+    /// Read from the snapshot's precomputed list — deriving it here would rebuild a dictionary on
+    /// every body evaluation, which a profiler showed happening far more often than displays change.
+    private var curatedModes: [DisplayMode] { display.curatedModes }
+
+    /// External displays only. macOS owns the built-in panel's resolution as much as its brightness,
+    /// and a second control for it here would be a duplicate of System Settings without any of its
+    /// safeguards.
+    @ViewBuilder
+    private var resolutionPicker: some View {
+        if !display.isBuiltIn, curatedModes.count > 1 {
+            // Tagged by size, not by `mode.id`: the curated row for a size carries the highest
+            // refresh rate, so an id tag would both blank the picker at any other rate and reset the
+            // rate on every change. The refresh rate itself is only selectable in Settings, which is
+            // all the more reason not to silently overwrite it from here.
+            Picker("Resolution", selection: Binding(
+                get: { display.currentMode?.sizeKey ?? "" },
+                set: { key in
+                    guard let target = curatedModes.first(where: { $0.sizeKey == key }) else { return }
+                    model.setMode(
+                        DisplayModeSwitcher.mode(
+                            matchingSizeOf: target,
+                            preservingRate: display.currentMode?.refreshRate ?? 0,
+                            in: display.availableModes),
+                        for: display)
+                })
+            ) {
+                ForEach(curatedModes) { mode in
+                    Text(mode.displayLabel).tag(mode.sizeKey)
+                }
+            }
+            .pickerStyle(.menu)
+            .controlSize(.small)
+            .font(.caption)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 4) {
+                Text(display.name)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .help(display.name) // the full name, for one the fixed width truncates
+                if display.isMain {
+                    Text("Main").font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if !display.isBuiltIn {
+                    Text("\(Int((brightness * 100).rounded()))%")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit() // stops the row jittering as the number changes width
+                }
+            }
+
+            if display.isBuiltIn {
+                // No slider, no resolution picker, and no "unavailable" wording: nothing is missing
+                // here. macOS drives this panel entirely. The row stays so the menu still shows the
+                // whole desk rather than pretending the laptop screen is not there.
+                Text("Managed by macOS")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if let controller {
+                Slider(
+                    value: Binding(
+                        get: { Double(brightness) },
+                        // The binding writes straight through: the coordinator updates its published
+                        // state synchronously and hands the hardware write off, so the slider tracks
+                        // the pointer even when the monitor's I2C is slow.
+                        set: { model.setBrightness(Float($0), for: display) }),
+                    in: 0...1
+                ) {
+                    // Hidden visually, read by VoiceOver: a bare slider announces only a percentage,
+                    // which on a two-monitor desk does not say which one it moves.
+                    Text("\(display.name) brightness")
+                }
+                .labelsHidden()
+                .controlSize(.small)
+
+                HStack {
+                    // A hold is not a choice: the software controller underneath is a stand-in the
+                    // app has deliberately not applied, so naming it here would claim a dim that is
+                    // not happening. Say what is actually going on instead.
+                    if phase == .heldForDDC {
+                        Label("Waiting for DDC…", systemImage: "clock")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .help("This monitor has answered DDC before and is expected to again. "
+                                + "The brightness you set is kept until it does.")
+                    } else {
+                        Label(controller.label, systemImage: controller.isHardware ? "bolt.fill" : "circle.lefthalf.filled")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+            } else if phase == .probing {
+                // The two seconds between a display appearing and its first probe, plus the probe
+                // itself. This used to read "No brightness control available", which is the opposite
+                // of what is happening.
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Checking brightness control…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text("No brightness control available")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            resolutionPicker
+
+            if let warning = model.brightness.warnings[display.id] {
+                Text(warning)
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+
+            // Surfaced in the menu, not buried in Settings: an unconfirmed identity means brightness
+            // and HiDPI settings may be attached to the wrong monitor, which the user should fix now.
+            if model.ambiguousKeys.contains(display.id) {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text("Identity unconfirmed")
+                        .font(.caption2)
+                    Button("This is a separate display") { model.pinIdentity(for: display) }
+                        .font(.caption2)
+                        .buttonStyle(.link)
+                }
+            }
+        }
+    }
+}

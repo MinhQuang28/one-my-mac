@@ -1,0 +1,171 @@
+import XCTest
+@testable import HiDisplayKit
+
+/// Guards the identity logic, which is the highest-consequence pure code in the project: a key
+/// collision means two monitors share one profile and fight over brightness and HiDPI settings.
+///
+/// The scenario driving most of these is the one the original plan assumed away — two identical
+/// monitors on Apple Silicon, both reporting serial `0`.
+final class DisplayIdentityTests: XCTestCase {
+
+    // MARK: - Key tiers
+
+    func testSerialNumberProducesStrongTier() {
+        let displays = [
+            RawDisplayInfo(cgDisplayID: 1, vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0xABCD),
+        ]
+        let resolved = DisplayIdentityResolver.resolve(displays: displays, metadata: [])
+        XCTAssertEqual(resolved.count, 1)
+        XCTAssertEqual(resolved[0].identity.keyTier, .strong)
+        XCTAssertEqual(resolved[0].identity.stableKey, "v10ac-pd0a1-s" + DisplayIdentity.serialHash(0xabcd))
+        XCTAssertFalse(resolved[0].identity.stableKey.contains("0000abcd"),
+                       "the raw serial must not appear in a key that is logged and exported")
+    }
+
+    func testEDIDHashProducesStrongTierEvenWithoutSerial() {
+        let displays = [
+            RawDisplayInfo(cgDisplayID: 1, vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0),
+        ]
+        let metadata = [
+            DisplayMetadata(vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0, edidHash: "deadbeefcafe1234"),
+        ]
+        let resolved = DisplayIdentityResolver.resolve(displays: displays, metadata: metadata)
+        XCTAssertEqual(resolved[0].identity.keyTier, .strong)
+        XCTAssertEqual(resolved[0].identity.stableKey, "v10ac-pd0a1-edeadbeefcafe1234")
+    }
+
+    func testLoneDisplayWithNoDiscriminatorUsesWeakTier() {
+        let displays = [
+            RawDisplayInfo(cgDisplayID: 1, vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0, unitNumber: 3),
+        ]
+        let resolved = DisplayIdentityResolver.resolve(displays: displays, metadata: [])
+        // Weak is correct here: there is nothing to collide with, and a port-dependent key would
+        // needlessly break when the user moves the cable.
+        XCTAssertEqual(resolved[0].identity.keyTier, .weak)
+        XCTAssertEqual(resolved[0].identity.stableKey, "v10ac-pd0a1")
+    }
+
+    /// The bug this whole tier system exists to prevent.
+    func testTwoIdenticalSeriallessDisplaysDoNotCollide() {
+        let displays = [
+            RawDisplayInfo(cgDisplayID: 1, vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0, unitNumber: 1),
+            RawDisplayInfo(cgDisplayID: 2, vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0, unitNumber: 2),
+        ]
+        let metadata = [
+            DisplayMetadata(vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0, registryEntryID: 0x4001),
+            DisplayMetadata(vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0, registryEntryID: 0x4002),
+        ]
+        let resolved = DisplayIdentityResolver.resolve(displays: displays, metadata: metadata)
+
+        XCTAssertEqual(resolved.count, 2)
+        XCTAssertNotEqual(
+            resolved[0].identity.stableKey, resolved[1].identity.stableKey,
+            "two identical monitors must not share a profile key")
+        XCTAssertEqual(resolved[0].identity.keyTier, .location)
+        XCTAssertEqual(resolved[1].identity.keyTier, .location)
+        // And the pairing is honestly reported as a guess.
+        XCTAssertEqual(resolved[0].pairing, .ambiguous)
+        XCTAssertEqual(resolved[1].pairing, .ambiguous)
+    }
+
+    /// A `.location` key has to survive a reboot: registry entry IDs are handed out per boot, so a
+    /// key built from one dissolved at every restart and both monitors silently lost their profiles.
+    /// The DCP unit token (`dispext0`…) names the *port*, which is boot-stable and is exactly what
+    /// the tier's own explanation promises the key means.
+    func testLocationKeysSurviveARebootWhenTheUnitTokenIsPresent() {
+        let displays = [
+            RawDisplayInfo(cgDisplayID: 1, vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0, unitNumber: 1),
+            RawDisplayInfo(cgDisplayID: 2, vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0, unitNumber: 2),
+        ]
+        // Same ports before and after the reboot; completely different entry IDs — and in the
+        // opposite order, which is exactly how a reboot shuffles them.
+        let beforeReboot = [
+            DisplayMetadata(vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0,
+                            registryEntryID: 0x4001, unitToken: "dispext0"),
+            DisplayMetadata(vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0,
+                            registryEntryID: 0x4002, unitToken: "dispext1"),
+        ]
+        let afterReboot = [
+            DisplayMetadata(vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0,
+                            registryEntryID: 0x9378, unitToken: "dispext0"),
+            DisplayMetadata(vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0,
+                            registryEntryID: 0x9231, unitToken: "dispext1"),
+        ]
+
+        let first = DisplayIdentityResolver.resolve(displays: displays, metadata: beforeReboot)
+        let second = DisplayIdentityResolver.resolve(displays: displays, metadata: afterReboot)
+
+        XCTAssertEqual(first[0].identity.stableKey, "v10ac-pd0a1-tdispext0")
+        XCTAssertEqual(first[1].identity.stableKey, "v10ac-pd0a1-tdispext1")
+        XCTAssertEqual(first.map(\.identity.stableKey), second.map(\.identity.stableKey),
+                       "the same monitor on the same port must keep its profile across a reboot")
+    }
+
+    func testIdenticalDisplaysFallBackToUnitNumberWhenNoMetadata() {
+        let displays = [
+            RawDisplayInfo(cgDisplayID: 1, vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0, unitNumber: 7),
+            RawDisplayInfo(cgDisplayID: 2, vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0, unitNumber: 8),
+        ]
+        // No IORegistry records at all — the resolver must still keep them apart.
+        let resolved = DisplayIdentityResolver.resolve(displays: displays, metadata: [])
+        XCTAssertNotEqual(resolved[0].identity.stableKey, resolved[1].identity.stableKey)
+        XCTAssertEqual(resolved[0].pairing, .unmatched)
+    }
+
+    func testDifferentSerialsDisambiguateSameModel() {
+        let displays = [
+            RawDisplayInfo(cgDisplayID: 1, vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0x111),
+            RawDisplayInfo(cgDisplayID: 2, vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0x222),
+        ]
+        let metadata = [
+            DisplayMetadata(vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0x222, registryEntryID: 0x1),
+            DisplayMetadata(vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0x111, registryEntryID: 0x2),
+        ]
+        let resolved = DisplayIdentityResolver.resolve(displays: displays, metadata: metadata)
+        // Both pair confidently despite the metadata arriving in the opposite order.
+        XCTAssertEqual(resolved.map(\.pairing), [.confident, .confident])
+        XCTAssertEqual(resolved[0].identity.stableKey, "v10ac-pd0a1-s" + DisplayIdentity.serialHash(0x111))
+        XCTAssertEqual(resolved[1].identity.stableKey, "v10ac-pd0a1-s" + DisplayIdentity.serialHash(0x222))
+    }
+
+    // MARK: - Determinism and pinning
+
+    func testResolutionIsDeterministicRegardlessOfInputOrder() {
+        let a = RawDisplayInfo(cgDisplayID: 9, vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0, unitNumber: 1)
+        let b = RawDisplayInfo(cgDisplayID: 4, vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0, unitNumber: 2)
+        let forward = DisplayIdentityResolver.resolve(displays: [a, b], metadata: []).map(\.identity.stableKey)
+        let reversed = DisplayIdentityResolver.resolve(displays: [b, a], metadata: []).map(\.identity.stableKey)
+        XCTAssertEqual(forward, reversed)
+    }
+
+    func testUserAssignmentOutranksEveryTier() {
+        let displays = [
+            RawDisplayInfo(cgDisplayID: 1, vendorID: 0x10AC, productID: 0xD0A1, serialNumber: 0, unitNumber: 5),
+        ]
+        let heuristicKey = "v10ac-pd0a1"
+        let pinned = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+        let resolved = DisplayIdentityResolver.resolve(
+            displays: displays, metadata: [], userAssignments: [heuristicKey: pinned])
+        XCTAssertEqual(resolved[0].identity.stableKey, "user-11111111-2222-3333-4444-555555555555")
+    }
+
+    func testStableKeyIsLowercaseHexAndLocaleIndependent() {
+        let identity = DisplayIdentity(
+            cgDisplayID: 1, vendorID: 0xABCD, productID: 0x00EF,
+            serialNumber: 0x1234_5678, keyTier: .strong)
+        XCTAssertEqual(identity.stableKey, "vabcd-p00ef-s" + DisplayIdentity.serialHash(0x12345678))
+        XCTAssertEqual(DisplayIdentity.serialHash(0x12345678).count, 16)
+    }
+
+    // MARK: - Vendor/product fallback
+
+    func testVendorAndProductFallBackToMetadataWhenCoreGraphicsReportsZero() {
+        let displays = [
+            RawDisplayInfo(cgDisplayID: 1, vendorID: 0, productID: 0, serialNumber: 0),
+        ]
+        let metadata = [DisplayMetadata(vendorID: 0x1E6D, productID: 0x5B11, registryEntryID: 1)]
+        let resolved = DisplayIdentityResolver.resolve(displays: displays, metadata: metadata)
+        XCTAssertEqual(resolved[0].identity.vendorID, 0x1E6D)
+        XCTAssertEqual(resolved[0].identity.productID, 0x5B11)
+    }
+}
