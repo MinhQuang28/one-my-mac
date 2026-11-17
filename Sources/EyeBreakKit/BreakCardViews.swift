@@ -12,12 +12,12 @@ private struct BreakCard<Buttons: View>: View {
         let seconds = Int(remaining.rounded(.up))
         VStack(alignment: .leading, spacing: Gap.md) {
             HStack(spacing: Gap.md) {
-                CountdownClock(remaining: remaining).frame(width: 44, height: 44)
+                CountdownClock(remaining: remaining).frame(width: 52, height: 52)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(String(format: "%02d:%02d", seconds / 60, seconds % 60))
-                        .font(.system(size: 22, weight: .bold, design: .rounded)).monospacedDigit()
+                        .font(.system(size: 26, weight: .bold, design: .rounded)).monospacedDigit()
                         .contentTransition(.numericText())
-                    Text(text).font(.system(size: FS.body)).foregroundStyle(.secondary)
+                    Text(text).font(.system(size: FS.subhead)).foregroundStyle(.secondary)
                         .lineLimit(1).minimumScaleFactor(0.8)
                 }
             }
@@ -32,7 +32,7 @@ private struct BreakCard<Buttons: View>: View {
 }
 
 enum BreakCardMetrics {
-    static let size = NSSize(width: 440, height: 132)
+    static let size = NSSize(width: 460, height: 150)
 }
 
 /// Shown shortly before a break: start early or push it back.
@@ -45,7 +45,7 @@ struct BreakNoticeView: View {
         return BreakCard(remaining: remaining,
                          text: tr("Eye break coming up. Wrap up what you're doing.",
                                   "Sắp tới giờ nghỉ mắt. Tạm khép lại việc đang dở nhé.")) {
-            CardChip(tr("Start break now", "Nghỉ ngay"), prominent: true, action: breaks.takeBreakNow)
+            CardChip(tr("Start the break now", "Nghỉ ngay bây giờ"), prominent: true, action: breaks.takeBreakNow)
             if breaks.allowSkip {
                 ForEach(EyeBreaks.postponeChoices, id: \.self) { minutes in
                     CardChip(tr("+\(minutes) min", "+\(minutes) phút")) { breaks.postpone(minutes: minutes) }
@@ -65,11 +65,12 @@ struct BreakCompactView: View {
         let tip = BreakTip.forBreak(breaks.breakCount)
         return BreakCard(remaining: remaining, text: tr("Rest your eyes: \(tip.title.lowercased())", "Nghỉ mắt: \(tip.title.lowercased())")) {
             if breaks.allowSkip {
-                CardChip(tr("5 more minutes", "Hoãn 5 phút")) { breaks.postpone(minutes: 5) }
-                CardChip(tr("Skip", "Bỏ qua"), action: breaks.skip)
+                CardChip(tr("Skip this break", "Bỏ qua lần nghỉ này"), prominent: true, action: breaks.skip)
+                CardChip(tr("+5 min", "+5 phút")) { breaks.postpone(minutes: 5) }
+                CardChip(tr("+15 min", "+15 phút")) { breaks.postpone(minutes: 15) }
             } else {
                 Label(tr("Look away until the clock runs out", "Rời mắt khỏi màn hình tới khi hết giờ"),
-                      systemImage: "eye.slash").font(.system(size: FS.body)).foregroundStyle(.secondary)
+                      systemImage: "eye.slash").font(.system(size: FS.subhead)).foregroundStyle(.secondary)
             }
         }
     }
@@ -86,8 +87,11 @@ private struct CardChip: View {
 
     var body: some View {
         Button(action: action) {
-            Text(title).font(.system(size: FS.title, weight: .medium))
-                .padding(.horizontal, Gap.lg).padding(.vertical, 8)
+            // The main action keeps its natural width; the others share what is left of the row.
+            Text(title).font(.system(size: FS.subhead, weight: .medium)).lineLimit(1)
+                .fixedSize(horizontal: prominent, vertical: false)
+                .frame(maxWidth: prominent ? nil : .infinity)
+                .padding(.horizontal, prominent ? Gap.lg + 2 : Gap.sm).padding(.vertical, 9)
                 .background(Capsule().fill(Color.primary.opacity(prominent ? 0.14 : 0)))
                 .overlay(Capsule().strokeBorder(Color.primary.opacity(prominent ? 0 : 0.2)))
                 .contentShape(Capsule())

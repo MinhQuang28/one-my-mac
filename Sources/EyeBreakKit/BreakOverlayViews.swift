@@ -51,7 +51,9 @@ struct BreakCurtainView: View {
     var body: some View {
         let tip = BreakTip.forBreak(breaks.breakCount)
         ZStack {
-            Color.black.opacity(0.86)
+            // 70 % see-through; a darker pool behind the text keeps it readable over bright windows.
+            Color.black.opacity(0.3)
+            RadialGradient(colors: [Color.black.opacity(0.6), .clear], center: .center, startRadius: 120, endRadius: 520)
             VStack(spacing: 28) {
                 ZStack {
                     Circle().stroke(Color.white.opacity(0.12), lineWidth: 6)
@@ -80,6 +82,7 @@ struct BreakCurtainView: View {
                 }
             }
             .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.5), radius: 6)
         }
         .ignoresSafeArea()
     }
