@@ -49,6 +49,19 @@ observation of this machine rather than any third-party implementation.
   block DDC, which displays misbehave).
 - **Reused:** nothing. No source was available to reuse, and none was sought.
 
+### HyperMac
+
+- <https://github.com/mrgoose000000-gif/HyperMac>
+- Licence: none published (all rights reserved by default).
+- **Read:** yes, for the general approach to a few features.
+- **Reused:** ideas only — that the charge limit can go through the system `PowerUISmartChargeClient`,
+  that CPU / GPU load can be sampled from Mach host statistics and `IOAccelerator`, and that a stale
+  Accessibility grant can be reset.
+- **Not reused:** no code. An earlier version of window snapping carried HyperMac-derived code; it was
+  removed and `WindowKit` (`WindowLayout`, `WindowMover`, `WindowRestoreMemory`) was redesigned and
+  rewritten: tiled windows now keep their proportional share when moved between displays, restore
+  memory is a simple LRU record, and the move is one size/position/size write plus a single check.
+
 ### Apple documentation
 
 - <https://developer.apple.com/documentation/coregraphics>
