@@ -48,15 +48,19 @@ struct BreakCurtainView: View {
         return 0
     }
 
+    /// Text colour on the pale veil.
+    private static let ink = Color(white: 0.12)
+
     var body: some View {
         let tip = BreakTip.forBreak(breaks.breakCount)
         ZStack {
-            // 70 % see-through; a darker pool behind the text keeps it readable over bright windows.
-            Color.black.opacity(0.3)
-            RadialGradient(colors: [Color.black.opacity(0.6), .clear], center: .center, startRadius: 120, endRadius: 520)
+            // A pale grey veil, half see-through; a brighter pool behind the text keeps the dark
+            // lettering readable over dark windows.
+            Color(white: 0.88).opacity(0.5)
+            RadialGradient(colors: [Color.white.opacity(0.75), .clear], center: .center, startRadius: 120, endRadius: 520)
             VStack(spacing: 28) {
                 ZStack {
-                    Circle().stroke(Color.white.opacity(0.12), lineWidth: 6)
+                    Circle().stroke(Self.ink.opacity(0.12), lineWidth: 6)
                     Circle().trim(from: 0, to: min(1, remaining / Double(max(breaks.breakSeconds, 1))))
                         .stroke(Color.teal, style: StrokeStyle(lineWidth: 6, lineCap: .round))
                         .rotationEffect(.degrees(-90))
@@ -70,7 +74,7 @@ struct BreakCurtainView: View {
                 .frame(width: 170, height: 170)
                 VStack(spacing: 8) {
                     Text(tip.title).font(.system(size: 30, weight: .semibold))
-                    Text(tip.detail).font(.system(size: 16)).foregroundStyle(.white.opacity(0.7))
+                    Text(tip.detail).font(.system(size: 16)).foregroundStyle(Self.ink.opacity(0.7))
                         .multilineTextAlignment(.center).frame(maxWidth: 460)
                 }
                 if breaks.allowSkip {
@@ -81,8 +85,7 @@ struct BreakCurtainView: View {
                     .padding(.top, 4)
                 }
             }
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.5), radius: 6)
+            .foregroundStyle(Self.ink)
         }
         .ignoresSafeArea()
     }
@@ -91,7 +94,7 @@ struct BreakCurtainView: View {
         Button(action: action) {
             Text(title).font(.system(size: 14, weight: .medium))
                 .padding(.horizontal, 18).padding(.vertical, 9)
-                .background(Capsule().fill(Color.white.opacity(0.14)))
+                .background(Capsule().fill(Self.ink.opacity(0.1)))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
