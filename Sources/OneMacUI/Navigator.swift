@@ -13,6 +13,7 @@ public enum SettingsPane: Hashable, Sendable {
     case mouseDevices
     case mouseGestures
     case windows
+    case eyeBreaks
     case general
 
     public var title: String {
@@ -27,6 +28,7 @@ public enum SettingsPane: Hashable, Sendable {
         case .mouseDevices: return tr("Devices", "Thiết bị")
         case .mouseGestures: return tr("Gestures", "Cử chỉ")
         case .windows: return tr("Windows", "Cửa sổ")
+        case .eyeBreaks: return tr("Eye Breaks", "Nghỉ mắt")
         case .general: return tr("General", "Chung")
         }
     }
@@ -54,6 +56,8 @@ public enum SettingsPane: Hashable, Sendable {
                                        "Đổi Space bằng cách giữ một nút rồi kéo.")
         case .windows: return tr("Snap windows to halves and corners, and send them to another display.",
                                  "Chia cửa sổ theo nửa, góc phần tư và chuyển sang màn hình khác.")
+        case .eyeBreaks: return tr("Short, regular breaks from the screen to rest your eyes.",
+                                   "Những quãng nghỉ ngắn, đều đặn để mắt rời khỏi màn hình.")
         case .general: return tr("Language, startup and everyday utilities.",
                                  "Ngôn ngữ, khởi động và các tiện ích thường dùng.")
         }
@@ -72,6 +76,7 @@ public enum SettingsPane: Hashable, Sendable {
         case .mouseDevices: return .brown
         case .mouseGestures: return .cyan
         case .windows: return .mint
+        case .eyeBreaks: return .teal
         case .general: return .gray
         }
     }
@@ -88,6 +93,7 @@ public enum SettingsPane: Hashable, Sendable {
         case .mouseDevices: return "cable.connector"
         case .mouseGestures: return "hand.draw"
         case .windows: return "rectangle.split.2x1"
+        case .eyeBreaks: return "eye"
         case .general: return "gearshape"
         }
     }

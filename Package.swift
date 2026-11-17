@@ -2,6 +2,7 @@
 import PackageDescription
 
 // OneMac = HiDisplay (display / HiDPI / DDC) + Mousse (mouse) + windows + hardware (battery, fans, keep-awake)
+// + eye breaks
 // in one menu-bar app. Each part stays its own module so the original code keeps its language mode
 // and tests; the OneMac target only composes them.
 let package = Package(
@@ -26,6 +27,10 @@ let package = Package(
         .target(name: "WindowKit", dependencies: ["OneMacUI"], path: "Sources/WindowKit",
                 swiftSettings: [.swiftLanguageMode(.v5)]),
 
+        // ---- Eye breaks: timed rests from the screen ----
+        .target(name: "EyeBreakKit", dependencies: ["OneMacUI"], path: "Sources/EyeBreakKit",
+                swiftSettings: [.swiftLanguageMode(.v5)]),
+
         // ---- Mouse (from Mousse) ----
         .target(name: "MousseFeature", dependencies: ["OneMacUI", "WindowKit"], path: "Sources/MousseFeature",
                 swiftSettings: [.swiftLanguageMode(.v5)]),
@@ -41,7 +46,7 @@ let package = Package(
 
         // ---- The app ----
         .executableTarget(name: "OneMac",
-                          dependencies: ["HiDisplayFeature", "MousseFeature", "HardwareKit", "WindowKit", "OneMacUI"],
+                          dependencies: ["HiDisplayFeature", "MousseFeature", "HardwareKit", "WindowKit", "EyeBreakKit", "OneMacUI"],
                           path: "Sources/OneMac",
                           swiftSettings: [.swiftLanguageMode(.v5)]),
 
@@ -50,6 +55,8 @@ let package = Package(
         .testTarget(name: "MousseTests", dependencies: ["MousseFeature"], path: "Tests/MousseTests",
                     swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "WindowKitTests", dependencies: ["WindowKit"], path: "Tests/WindowKitTests",
+                    swiftSettings: [.swiftLanguageMode(.v5)]),
+        .testTarget(name: "EyeBreakKitTests", dependencies: ["EyeBreakKit"], path: "Tests/EyeBreakKitTests",
                     swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "HardwareKitTests", dependencies: ["HardwareKit"], path: "Tests/HardwareKitTests",
                     swiftSettings: [.swiftLanguageMode(.v5)]),

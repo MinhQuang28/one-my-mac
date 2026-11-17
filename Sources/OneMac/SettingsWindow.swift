@@ -1,3 +1,4 @@
+import EyeBreakKit
 import HardwareKit
 import HiDisplayFeature
 import MousseFeature
@@ -29,6 +30,7 @@ struct SettingsWindow: View {
                 }
                 Section(tr("Mouse", "Chuột")) { ForEach(Self.mousePages, id: \.self, content: row) }
                 Section(tr("Windows", "Cửa sổ")) { row(.windows) }
+                Section(tr("Wellbeing", "Sức khoẻ")) { row(.eyeBreaks) }
                 Section("OneMac") { row(.general) }
             }
             .listStyle(.sidebar)
@@ -58,6 +60,8 @@ struct SettingsWindow: View {
             MousePaneView(pane: pane)
         case .windows:
             WindowsPage()
+        case .eyeBreaks:
+            EyeBreakPage()
         case .general:
             GeneralPane()
         }

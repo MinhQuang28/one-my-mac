@@ -1,3 +1,4 @@
+import EyeBreakKit
 import HardwareKit
 import HiDisplayFeature
 import MousseFeature
@@ -49,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AccessibilityRecovery.clearStaleGrantIfNeeded()
         MouseModule.start()
         WindowSnapping.shared.start()
+        EyeBreaks.shared.start()
         Task { await HiDisplayModule.start() }
     }
 
@@ -62,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         KeepAwake.shared.deactivate()
         MouseModule.stop()
         WindowSnapping.shared.stop()
+        EyeBreaks.shared.stop()
         Task {
             await HiDisplayModule.stop()
             reply(sender)
