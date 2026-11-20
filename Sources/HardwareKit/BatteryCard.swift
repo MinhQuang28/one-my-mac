@@ -51,8 +51,15 @@ public struct BatteryCard: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.tileFill).frame(height: 8)
-                    Capsule().fill(LinearGradient(colors: barColors(b), startPoint: .leading, endPoint: .trailing))
-                        .frame(width: geo.size.width * CGFloat(min(max(b.percent, 0), 100)) / 100, height: 8)
+                    // Red → green over the whole track, revealed up to the level, so the colour at
+                    // the tip says how full the battery is.
+                    Capsule().fill(LinearGradient(colors: [.red, .orange, .yellow, .green],
+                                                  startPoint: .leading, endPoint: .trailing))
+                        .frame(height: 8)
+                        .mask(alignment: .leading) {
+                            Capsule().frame(width: geo.size.width * CGFloat(min(max(b.percent, 0), 100)) / 100,
+                                            height: 8)
+                        }
                     if let limit = chargeLimit.limit {
                         // Notch marking where charging stops.
                         Rectangle().fill(Color.orange).frame(width: 2.5, height: 12)
@@ -94,11 +101,6 @@ public struct BatteryCard: View {
     private func capacityNote(_ b: BatterySnapshot) -> String? {
         guard let max = b.maxCapacity, let design = b.designCapacity else { return nil }
         return "\(max)/\(design) mAh"
-    }
-
-    private func barColors(_ b: BatterySnapshot) -> [Color] {
-        if b.percent <= 20 { return [.red, .orange] }
-        return b.isCharging ? [.green, .mint] : [.green, .accentColor]
     }
 
     private func healthColor(_ h: Double?) -> Color {

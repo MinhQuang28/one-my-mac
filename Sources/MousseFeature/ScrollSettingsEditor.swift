@@ -57,8 +57,11 @@ struct ScrollSettingsEditor: View {
         if !native {
             SettingsSection(tr("Zoom and high-resolution mice", "Thu phóng và chuột độ phân giải cao")) {
                 SettingsSlider(title: tr("Zoom speed (⌘ + wheel)", "Tốc độ thu phóng (⌘ + bánh xe)"),
-                               detail: tr("Pinch-zoom per notch. Lower it if Figma or Sketch zoom too far per click.",
-                                          "Mức thu phóng mỗi nấc. Giảm xuống nếu Figma hay Sketch phóng quá tay."),
+                               detail: MagnifySynthesizer.pinchSupported
+                                   ? tr("Pinch-zoom per notch. Lower it if Figma or Sketch zoom too far per click.",
+                                        "Mức thu phóng mỗi nấc. Giảm xuống nếu Figma hay Sketch phóng quá tay.")
+                                   : tr("How readily the wheel sends a ⌘+ / ⌘− zoom step.",
+                                        "Mức nhạy khi bánh xe gửi một bước thu phóng ⌘+ / ⌘−."),
                                value: $settings.zoomSpeed, range: 0.2...6.0, step: 0.1,
                                format: { String(format: "%.1f×", $0) },
                                minLabel: tr("Fine", "Mịn"), maxLabel: tr("Coarse", "Thô"))

@@ -15,6 +15,40 @@ extension EyeBreaks {
         case .headsUp: return tr("Break starting…", "Sắp tới giờ nghỉ…")
         case .deferred: return tr("Waiting — a video or call is on screen", "Đang chờ — có video hoặc cuộc gọi")
         case .onBreak: return tr("On a break", "Đang nghỉ mắt")
+        case let .paused(until):
+            let time = until.formatted(date: .omitted, time: .shortened)
+            return tr("Paused until \(time)", "Tạm dừng tới \(time)")
+        }
+    }
+
+    /// A few characters for the menu bar: minutes to the next break, or a word for the other states.
+    /// Nil while eye breaks are off. Changes at most once a minute while counting down.
+    public var menuBarStatus: String? {
+        guard showInMenuBar else { return nil }
+        switch phase {
+        case nil: return nil
+        case let .working(remaining): return tr("\(Int((remaining / 60).rounded(.up)))m", "\(Int((remaining / 60).rounded(.up)))p")
+        case .headsUp: return tr("Soon", "Sắp nghỉ")
+        case .deferred: return tr("Waiting", "Chờ")
+        case .onBreak: return tr("Break", "Nghỉ")
+        case .paused: return tr("Paused", "Dừng")
+        }
+    }
+}
+
+/// Pause for a while, or resume when paused.
+private struct PauseControl: View {
+    @ObservedObject var breaks: EyeBreaks
+
+    var body: some View {
+        if breaks.isPaused {
+            Button(tr("Resume", "Tiếp tục"), action: breaks.resumeFromPause).controlSize(.small)
+        } else {
+            Menu(tr("Pause", "Tạm dừng")) {
+                Button(tr("For 1 hour", "Trong 1 giờ")) { breaks.pause(hours: 1) }
+                Button(tr("Until tomorrow", "Tới ngày mai"), action: breaks.pauseUntilTomorrow)
+            }
+            .controlSize(.small).fixedSize()
         }
     }
 }
@@ -33,6 +67,7 @@ public struct EyeBreakCard: View {
                 LinkButton(tr("Options", "Tuỳ chỉnh")) { Navigator.shared.open(.eyeBreaks) }
                 Spacer()
                 if breaks.enabled {
+                    PauseControl(breaks: breaks)
                     Button(tr("Break now", "Nghỉ ngay"), action: breaks.takeBreakNow).controlSize(.small)
                 }
             }
@@ -54,6 +89,17 @@ public struct EyeBreakPage: View {
                             detail: tr("Starts a break right away.", "Bắt đầu một lần nghỉ ngay bây giờ."), icon: "play.circle") {
                     Button(tr("Break now", "Nghỉ ngay"), action: breaks.takeBreakNow)
                         .controlSize(.small).disabled(!breaks.enabled)
+                }
+                SettingsRow(tr("Pause", "Tạm dừng"),
+                            detail: tr("No breaks for an hour or for the rest of today.",
+                                       "Không nhắc nghỉ trong một giờ hoặc tới hết hôm nay."), icon: "pause.circle") {
+                    PauseControl(breaks: breaks).disabled(!breaks.enabled)
+                }
+                SettingsRow(tr("Today", "Hôm nay"),
+                            detail: tr("Breaks that ran to the end, and breaks skipped or pushed back.",
+                                       "Số lần nghỉ trọn vẹn và số lần bỏ qua hoặc lùi lại."), icon: "chart.bar") {
+                    SettingsValue(tr("\(breaks.stats.taken) taken · \(breaks.stats.skipped) skipped",
+                                     "\(breaks.stats.taken) đã nghỉ · \(breaks.stats.skipped) bỏ qua"))
                 }
             }
             SettingsSection(tr("Rhythm", "Nhịp nghỉ"),
@@ -79,17 +125,21 @@ public struct EyeBreakPage: View {
                                        "Một thẻ nhỏ đếm ngược trước 30 giây; có thể nghỉ luôn hoặc lùi giờ nghỉ ngay trên thẻ."),
                             icon: "bell", isOn: $breaks.headsUp)
                 SettingsRow(tr("Wait for videos and calls", "Chờ khi đang xem video hoặc họp"),
-                            detail: tr("Holds the break while an app keeps the display on, then starts it when that ends.",
-                                       "Tạm hoãn khi có ứng dụng đang giữ màn hình luôn sáng, xong thì mới nghỉ."),
+                            detail: tr("Holds the break while an app keeps the display on or a camera or microphone is in use. After 15 minutes of waiting it shows as the small card instead.",
+                                       "Tạm hoãn khi có ứng dụng giữ màn hình luôn sáng hoặc camera, micro đang được dùng. Chờ quá 15 phút thì hiện bằng thẻ nhỏ."),
                             icon: "play.rectangle", isOn: $breaks.deferForMedia)
                 SettingsRow(tr("Allow skipping", "Cho phép bỏ qua"),
-                            detail: tr("Turn off to make every break run to the end.",
-                                       "Tắt đi để mỗi lần nghỉ luôn chạy hết giờ."),
+                            detail: tr("Turn off to make every break run to the end. Pressing Esc 3 times still closes a full-screen break.",
+                                       "Tắt đi để mỗi lần nghỉ luôn chạy hết giờ. Nhấn Esc 3 lần vẫn đóng được màn che toàn màn hình."),
                             icon: "forward.end", isOn: $breaks.allowSkip)
                 SettingsRow(tr("Sound when the break ends", "Âm báo khi hết giờ nghỉ"),
                             detail: tr("So you know without looking back at the screen.",
                                        "Để biết hết giờ mà không cần nhìn lại màn hình."),
                             icon: "speaker.wave.2", isOn: $breaks.chime)
+                SettingsRow(tr("Countdown in the menu bar", "Đếm ngược trên thanh menu"),
+                            detail: tr("Minutes to the next break next to the OneMac icon.",
+                                       "Số phút tới lần nghỉ kế, cạnh biểu tượng OneMac."),
+                            icon: "menubar.rectangle", isOn: $breaks.showInMenuBar)
             }
         }
     }

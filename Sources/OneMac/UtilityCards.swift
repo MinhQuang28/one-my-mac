@@ -32,7 +32,7 @@ struct UtilityCards: View {
                 CardHeader(icon: "lifepreserver", tint: .red, title: tr("Rescue a dark screen", "Cứu màn hình tối"),
                            subtitle: tr("Clears all software dimming on every display",
                                         "Xoá mọi làm tối bằng phần mềm trên tất cả màn hình")) {
-                    Button("Reset") { HiDisplayModule.resetDimming() }.controlSize(.small)
+                    Button(tr("Reset", "Đặt lại")) { HiDisplayModule.resetDimming() }.controlSize(.small)
                 }
             }
         }
@@ -51,10 +51,17 @@ final class LoginItemState: ObservableObject {
     func refresh() {
         let status = SMAppService.mainApp.status
         isOn = status == .enabled
-        detail = status == .requiresApproval
-            ? tr("Waiting for approval in System Settings › Login Items",
-                 "Chờ bật trong Cài đặt hệ thống › Mục đăng nhập")
-            : Self.idleDetail
+        switch status {
+        case .requiresApproval:
+            detail = tr("Waiting for approval in System Settings › Login Items",
+                        "Chờ bật trong Cài đặt hệ thống › Mục đăng nhập")
+        case .notFound:
+            // Usually a second copy (a build folder next to /Applications) confuses LaunchServices.
+            detail = tr("macOS can't find OneMac — keep one copy, in Applications",
+                        "macOS không tìm thấy OneMac — chỉ giữ một bản trong Applications")
+        default:
+            detail = Self.idleDetail
+        }
     }
 
     func set(_ on: Bool) {

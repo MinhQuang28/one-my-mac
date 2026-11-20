@@ -58,6 +58,8 @@ final class EventTapEngine {
     private var captureDeadline = 0.0
     private static let captureMaxDuration = 30.0
     private var excludedBundleIDs: Set<String> = []
+    private var zoomWithCommand = true      // ⌘+wheel zooms (off = the app sees its own ⌘+wheel)
+    private var passControlScroll = false   // ⌃+wheel is left to macOS (Accessibility zoom)
 
     /// Terminal emulators are always excluded from smoothing (merged with the user's list).
     /// They are line-grid UIs that translate accumulated scroll PIXELS into mouse-reporting
@@ -105,7 +107,7 @@ final class EventTapEngine {
     /// desyncs the pair — e.g. a capture click over another app's window adds the mapping between
     /// down and up, and swallowing that up leaves the other app holding a stuck button-down.
     /// Only touched on the tap thread.
-    private var swallowedDownButtons: Set<Int> = []
+    private var pairing = ButtonPairing()
 
     /// Smooth scrolling + drag-to-switch-Spaces; only ever touched on the tap thread.
     private let scrollAnimator = ScrollAnimator()
@@ -253,6 +255,13 @@ final class EventTapEngine {
             if AccessibilityPermission.isTrusted { startTapThreadIfNeeded() }
             return
         }
+        // Accessibility was switched off while running: an active tap owned by an untrusted
+        // process can stall the events it filters for every app. Tear it down; the thread exits
+        // on its own when untrusted, and this watchdog brings it back once the grant returns.
+        guard AccessibilityPermission.isTrusted else {
+            requestEventTapRebuild(reason: "Accessibility permission was revoked")
+            return
+        }
         if !CGEvent.tapIsEnabled(tap: tap) {
             CGEvent.tapEnable(tap: tap, enable: true)
             if CGEvent.tapIsEnabled(tap: tap) {
@@ -363,6 +372,8 @@ final class EventTapEngine {
         spaceDragFollowFinger = config.spaceDragFollowFinger
         spaceDragLockPointer = config.spaceDragLockPointer
         excludedBundleIDs = Set(config.excludedBundleIDs).union(EventTapEngine.terminalBundleIDs)
+        zoomWithCommand = config.zoomWithCommand
+        passControlScroll = config.passControlScroll
         verticalToHorizontalBundleIDs = Set(config.verticalToHorizontalBundleIDs)
         mappingsByButton = Dictionary(config.mappings.map { ($0.buttonNumber, $0.action) },
                                       uniquingKeysWith: { first, _ in first })
@@ -434,7 +445,9 @@ final class EventTapEngine {
 
         // Tear down explicitly — remove the sources and invalidate the ports — so WindowServer
         // holds no orphaned hook from this tap while the replacement comes up. The freeze tap goes
-        // first: it also releases a pointer pinned by a drag the wake interrupted.
+        // first: it also releases a pointer pinned by a drag the wake interrupted. Ups that arrive
+        // while no tap is installed are never seen, so no press survives a rebuild.
+        abandonInFlightPresses()
         PointerFreeze.shared.uninstall(from: runLoop)
         CFRunLoopRemoveSource(runLoop, source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: false)
@@ -452,10 +465,41 @@ final class EventTapEngine {
         }
     }
 
+    /// Tap thread only: drop the drag gesture (releasing a pinned pointer and any half-slid Space)
+    /// and forget which button-downs were swallowed.
+    private func abandonInFlightPresses() {
+        spaceDrag.cancel()
+        pairing.reset()
+    }
+
+    /// Quit: close whatever is in flight so nothing is left half done in other apps — an open
+    /// scroll or pinch phase, a half-slid Space, a pinned pointer. Main thread.
+    func shutdown() {
+        scrollAnimator.endGestureNow()
+        magnifier.endNow()
+        lock.lock(); let runLoop = eventTapRunLoop; lock.unlock()
+        guard let runLoop else { return }
+        // The gesture's state belongs to the tap thread; give it a moment, but never hold up quit.
+        let done = DispatchSemaphore(value: 0)
+        CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) { [self] in
+            abandonInFlightPresses()
+            done.signal()
+        }
+        CFRunLoopWakeUp(runLoop)
+        _ = done.wait(timeout: .now() + 0.2)
+    }
+
     /// Called from the tap thread for every event of interest.
     fileprivate func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         // macOS disables a slow/stalled tap — re-enable it (the classic event-tap gotcha).
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            // Whatever was released while the tap was off never reached us: a gesture left
+            // `down` would hijack every later drag (and keep the pointer pinned).
+            abandonInFlightPresses()
+            guard AccessibilityPermission.isTrusted else {
+                requestEventTapRebuild(reason: "Accessibility permission was revoked")
+                return Unmanaged.passUnretained(event)
+            }
             lock.lock(); let tap = self.tap; lock.unlock()
             if let tap {
                 CGEvent.tapEnable(tap: tap, enable: true)
@@ -481,6 +525,8 @@ final class EventTapEngine {
         let byDevice = isScroll ? scrollByDevice : [:]
         let excluded = isScroll ? excludedBundleIDs : []
         let vToH = isScroll ? verticalToHorizontalBundleIDs : []
+        let cmdZooms = zoomWithCommand
+        let ctrlPasses = passControlScroll
         let dragCancel = pendingDragCancel
         pendingDragCancel = false
         let cursorFlush = pendingCursorFlush
@@ -532,14 +578,11 @@ final class EventTapEngine {
         // with a stuck button or feed it a stray unpaired up.
         if type == .otherMouseUp {
             let button = Int(event.getIntegerValueField(.mouseEventButtonNumber)) + 1
-            let downWasSwallowed = swallowedDownButtons.remove(button) != nil
             let up = spaceDrag.handleButtonUp(button)
-            if up.consumed {
-                // A plain click (no drag) on the gesture button still triggers its remap.
-                if up.wasClick, on, let action = maps[button] { action.post() }
-                return nil
-            }
-            return downWasSwallowed ? nil : Unmanaged.passUnretained(event)
+            let swallow = pairing.shouldSwallowUp(button, gestureConsumed: up.consumed)
+            // A plain click (no drag) on the gesture button still triggers its remap.
+            if up.consumed, up.wasClick, on, let action = maps[button] { action.post() }
+            return swallow ? nil : Unmanaged.passUnretained(event)
         }
 
         guard on else { return Unmanaged.passUnretained(event) }
@@ -549,8 +592,8 @@ final class EventTapEngine {
             let button = Int(event.getIntegerValueField(.mouseEventButtonNumber)) + 1
             // The Space-drag gesture owns its button: swallow the down and decide click-vs-drag
             // on release (so a plain click can still fire the button's mapped action).
-            if spaceDrag.handleButtonDown(button) { swallowedDownButtons.insert(button); return nil }
-            if let action = maps[button] { swallowedDownButtons.insert(button); action.post(); return nil }
+            if spaceDrag.handleButtonDown(button) { pairing.swallowDown(button); return nil }
+            if let action = maps[button] { pairing.swallowDown(button); action.post(); return nil }
             return Unmanaged.passUnretained(event)
 
         case .otherMouseDragged:
@@ -618,6 +661,14 @@ final class EventTapEngine {
             // Shift toggles the swap (XOR): held over a normal app it scrolls horizontally, held
             // over an axis-swap app it restores vertical.
             let transpose = (cursorID.map(vToH.contains) == true) != modShift
+
+            // A modifier wheel that is not ours to reshape goes out as the ORIGINAL event, flags
+            // intact: ⌃+wheel when the user leaves it to macOS (Accessibility zoom), and ⌘+wheel
+            // when zoom is off or the app under the cursor is excluded (its own ⌘+wheel applies).
+            if (modQuick && ctrlPasses) || (modZoom && (!cmdZooms || excludeSmoothing)) {
+                reverseInPlace(event, vertical: reverse, horizontal: reverseH)
+                return Unmanaged.passUnretained(event)
+            }
 
             // Cmd+scroll → real pinch zoom (works wherever a trackpad pinch works). Consumes the
             // wheel event entirely; the pinch ends itself after a short quiet period.

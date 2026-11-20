@@ -48,19 +48,13 @@ struct BreakCurtainView: View {
         return 0
     }
 
-    /// Text colour on the pale veil.
-    private static let ink = Color(white: 0.12)
-
     var body: some View {
         let tip = BreakTip.forBreak(breaks.breakCount)
         ZStack {
-            // A pale grey veil, half see-through; a brighter pool behind the text keeps the dark
-            // lettering readable over dark windows.
-            Color(white: 0.88).opacity(0.5)
-            RadialGradient(colors: [Color.white.opacity(0.75), .clear], center: .center, startRadius: 120, endRadius: 520)
+            Color.black.opacity(0.6)
             VStack(spacing: 28) {
                 ZStack {
-                    Circle().stroke(Self.ink.opacity(0.12), lineWidth: 6)
+                    Circle().stroke(Color.white.opacity(0.15), lineWidth: 6)
                     Circle().trim(from: 0, to: min(1, remaining / Double(max(breaks.breakSeconds, 1))))
                         .stroke(Color.teal, style: StrokeStyle(lineWidth: 6, lineCap: .round))
                         .rotationEffect(.degrees(-90))
@@ -74,7 +68,7 @@ struct BreakCurtainView: View {
                 .frame(width: 170, height: 170)
                 VStack(spacing: 8) {
                     Text(tip.title).font(.system(size: 30, weight: .semibold))
-                    Text(tip.detail).font(.system(size: 16)).foregroundStyle(Self.ink.opacity(0.7))
+                    Text(tip.detail).font(.system(size: 16)).foregroundStyle(.white.opacity(0.75))
                         .multilineTextAlignment(.center).frame(maxWidth: 460)
                 }
                 if breaks.allowSkip {
@@ -84,8 +78,12 @@ struct BreakCurtainView: View {
                     }
                     .padding(.top, 4)
                 }
+                Text(tr("Need the screen right now? Press Esc \(EmergencyExit.presses) times.",
+                        "Cần dùng máy gấp? Nhấn Esc \(EmergencyExit.presses) lần."))
+                    .font(.system(size: 12)).foregroundStyle(.white.opacity(0.45))
             }
-            .foregroundStyle(Self.ink)
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.6), radius: 5) // keeps the text clear over bright windows
         }
         .ignoresSafeArea()
     }
@@ -94,7 +92,7 @@ struct BreakCurtainView: View {
         Button(action: action) {
             Text(title).font(.system(size: 14, weight: .medium))
                 .padding(.horizontal, 18).padding(.vertical, 9)
-                .background(Capsule().fill(Self.ink.opacity(0.1)))
+                .background(Capsule().fill(Color.white.opacity(0.16)))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)

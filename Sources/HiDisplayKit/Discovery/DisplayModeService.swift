@@ -15,16 +15,34 @@ public enum DisplayModeService {
         guard let raw = CGDisplayCopyAllDisplayModes(displayID, options) as? [CGDisplayMode] else {
             return []
         }
+        let listed = raw.compactMap(DisplayMode.init(cgMode:)).filter(\.isUsableForDesktop)
+        return merged(listed: listed, hidden: SkyLightDisplayShim.shared.modes(for: displayID).map(\.mode))
+    }
 
+    /// CoreGraphics' modes plus the HiDPI ones only SkyLight lists, deduplicated and sorted.
+    ///
+    /// Only HiDPI modes are taken from the hidden list: those are what CoreGraphics is known to
+    /// withhold (looks-like 2560 × 1440 on a 1440p panel), and admitting every 1× oddity SkyLight
+    /// knows about would bury the picker. A listed mode always wins over its hidden twin, so the
+    /// public API stays the route whenever it can do the job.
+    static func merged(listed: [DisplayMode], hidden: [DisplayMode]) -> [DisplayMode] {
         var seen = Set<String>()
         var result: [DisplayMode] = []
-        for cgMode in raw {
-            guard let mode = DisplayMode(cgMode: cgMode), mode.isUsableForDesktop else { continue }
-            // Several CGDisplayMode objects can describe the same user-visible mode (different pixel
-            // encodings). Keying on the logical/backing/refresh triple collapses them.
-            if seen.insert(mode.id).inserted {
-                result.append(mode)
+        // Several CGDisplayMode objects can describe the same user-visible mode (different pixel
+        // encodings). Keying on the logical/backing/refresh triple collapses them.
+        for mode in listed where seen.insert(mode.id).inserted {
+            result.append(mode)
+        }
+        for mode in hidden where mode.isHiDPI && mode.isUsableForDesktop {
+            // SkyLight stores whole hertz, truncated: CoreGraphics' 59.94 Hz mode comes back as
+            // 59, and a 0 Hz internal-panel mode as a real rate. Either is the same mode, and
+            // admitting the twin would route a display through the private API for nothing.
+            let hasListedTwin = listed.contains {
+                $0.refreshRate == 0
+                    ? DisplayModeSwitcher.sameGeometry($0, mode)
+                    : DisplayModeSwitcher.sameShape($0, mode, tolerance: 1)
             }
+            if !hasListedTwin, seen.insert(mode.id).inserted { result.append(mode) }
         }
 
         result.sort { lhs, rhs in

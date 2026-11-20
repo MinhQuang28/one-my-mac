@@ -31,6 +31,66 @@ final class BatterySnapshotTests: XCTestCase {
     }
 }
 
+final class BatteryPercentTests: XCTestCase {
+    func testAppleSiliconReportsPercentDirectly() {
+        XCTAssertEqual(BatterySnapshot.percent(current: 85, max: 100, rawMax: 5670), 85)
+        XCTAssertEqual(BatterySnapshot.percent(current: 50, max: nil, rawMax: nil), 50)
+        XCTAssertEqual(BatterySnapshot.percent(current: nil, max: 100, rawMax: nil), 0)
+    }
+
+    /// Intel: CurrentCapacity and MaxCapacity are both mAh.
+    func testMilliampHoursBecomeAShareOfFullCharge() {
+        XCTAssertEqual(BatterySnapshot.percent(current: 3050, max: 6100, rawMax: nil), 50)
+        XCTAssertEqual(BatterySnapshot.percent(current: 80, max: 6100, rawMax: nil), 1)
+        XCTAssertEqual(BatterySnapshot.percent(current: 3050, max: nil, rawMax: 6100), 50)
+        XCTAssertEqual(BatterySnapshot.percent(current: 6200, max: 6100, rawMax: nil), 100)
+        XCTAssertEqual(BatterySnapshot.percent(current: 3050, max: 0, rawMax: nil), 100)
+    }
+
+    func testRegistryWithMilliampHours() {
+        let dict: [String: Any] = ["CurrentCapacity": 4575, "MaxCapacity": 6100, "DesignCapacity": 7000]
+        XCTAssertEqual(BatterySnapshot(registry: dict, fallbackTemperature: nil).percent, 75)
+    }
+}
+
+final class FanGuardTests: XCTestCase {
+    func testHotHasHysteresisAndSurvivesAMissingReading() {
+        XCTAssertFalse(FanGuard.isHot(wasHot: false, hottest: 89.9))
+        XCTAssertTrue(FanGuard.isHot(wasHot: false, hottest: 90))
+        XCTAssertTrue(FanGuard.isHot(wasHot: true, hottest: 80))
+        XCTAssertFalse(FanGuard.isHot(wasHot: true, hottest: 79.9))
+        XCTAssertTrue(FanGuard.isHot(wasHot: true, hottest: nil))
+        XCTAssertFalse(FanGuard.isHot(wasHot: false, hottest: nil))
+    }
+
+    func testHeatBlocksSlowSpeedsButNeverCooling() {
+        XCTAssertTrue(FanGuard.allows(fraction: 0.3, hot: false))
+        XCTAssertFalse(FanGuard.allows(fraction: 0.5, hot: true))
+        XCTAssertTrue(FanGuard.allows(fraction: 0.8, hot: true))
+        XCTAssertTrue(FanGuard.allows(fraction: 0.7996, hot: true)) // 80 % after RPM rounding
+        XCTAssertTrue(FanGuard.allows(fraction: 1, hot: true))
+    }
+
+    func testVerdict() {
+        XCTAssertEqual(FanGuard.verdict(manualFractions: [], hot: true, blindSamples: 9), .keep)
+        XCTAssertEqual(FanGuard.verdict(manualFractions: [0.3], hot: false, blindSamples: 0), .keep)
+        XCTAssertEqual(FanGuard.verdict(manualFractions: [0.9, 0.3], hot: true, blindSamples: 0), .releaseHot)
+        XCTAssertEqual(FanGuard.verdict(manualFractions: [0.8, 1], hot: true, blindSamples: 0), .keep)
+        XCTAssertEqual(FanGuard.verdict(manualFractions: [1], hot: false, blindSamples: 2), .keep)
+        XCTAssertEqual(FanGuard.verdict(manualFractions: [1], hot: false, blindSamples: 3), .releaseBlind)
+    }
+}
+
+final class FanHelperSignatureTests: XCTestCase {
+    func testRequirementIsCheckedAgainstTheFile() {
+        let ls = URL(fileURLWithPath: "/bin/ls")
+        XCTAssertTrue(FanHelper.satisfies(ls, "anchor apple"))
+        XCTAssertFalse(FanHelper.satisfies(ls, "certificate leaf = H\"0000000000000000000000000000000000000000\""))
+        XCTAssertFalse(FanHelper.satisfies(URL(fileURLWithPath: "/nonexistent"), "anchor apple"))
+        XCTAssertFalse(FanHelper.satisfies(ls, "not a requirement"))
+    }
+}
+
 final class ThermalSnapshotTests: XCTestCase {
     func testDieSensorsDriveCPUAndBatterySensorIsSeparate() {
         let t = ThermalSnapshot(sensors: [("PMU tdie1", 50), ("PMU tdie2", 60), ("PMU tdev1", 90),

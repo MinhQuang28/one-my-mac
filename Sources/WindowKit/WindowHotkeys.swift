@@ -1,47 +1,5 @@
 import Carbon.HIToolbox
 
-/// A global keyboard shortcut: virtual key code plus Carbon modifier flags.
-struct WindowShortcut: Equatable {
-    let keyCode: Int
-    let modifiers: Int
-
-    private static let keyNames: [Int: String] = [
-        kVK_LeftArrow: "←", kVK_RightArrow: "→", kVK_UpArrow: "↑", kVK_DownArrow: "↓",
-        kVK_Return: "↩", kVK_Delete: "⌫", kVK_ANSI_U: "U", kVK_ANSI_I: "I", kVK_ANSI_J: "J",
-        kVK_ANSI_K: "K", kVK_ANSI_C: "C",
-    ]
-
-    /// Key caps in the order macOS prints them: ⌃⌥⇧⌘ then the key.
-    var keyCaps: [String] {
-        var caps: [String] = []
-        if modifiers & controlKey != 0 { caps.append("⌃") }
-        if modifiers & optionKey != 0 { caps.append("⌥") }
-        if modifiers & shiftKey != 0 { caps.append("⇧") }
-        if modifiers & cmdKey != 0 { caps.append("⌘") }
-        return caps + [Self.keyNames[keyCode] ?? "?"]
-    }
-
-    /// The defaults follow Rectangle, so muscle memory carries over.
-    static func `default`(for action: WindowAction) -> WindowShortcut {
-        let base = controlKey | optionKey
-        switch action {
-        case .leftHalf: return .init(keyCode: kVK_LeftArrow, modifiers: base)
-        case .rightHalf: return .init(keyCode: kVK_RightArrow, modifiers: base)
-        case .topHalf: return .init(keyCode: kVK_UpArrow, modifiers: base)
-        case .bottomHalf: return .init(keyCode: kVK_DownArrow, modifiers: base)
-        case .topLeft: return .init(keyCode: kVK_ANSI_U, modifiers: base)
-        case .topRight: return .init(keyCode: kVK_ANSI_I, modifiers: base)
-        case .bottomLeft: return .init(keyCode: kVK_ANSI_J, modifiers: base)
-        case .bottomRight: return .init(keyCode: kVK_ANSI_K, modifiers: base)
-        case .maximize: return .init(keyCode: kVK_Return, modifiers: base)
-        case .center: return .init(keyCode: kVK_ANSI_C, modifiers: base)
-        case .restore: return .init(keyCode: kVK_Delete, modifiers: base)
-        case .nextDisplay: return .init(keyCode: kVK_RightArrow, modifiers: base | cmdKey)
-        case .previousDisplay: return .init(keyCode: kVK_LeftArrow, modifiers: base | cmdKey)
-        }
-    }
-}
-
 /// Registers the shortcuts with the system hot-key service: no event tap and no key-by-key
 /// filtering in this process — the system calls back only when one of them is pressed.
 @MainActor
@@ -53,13 +11,15 @@ final class WindowHotkeys {
 
     init(onPress: @escaping (WindowAction) -> Void) { self.onPress = onPress }
 
-    /// Registers every shortcut; returns the actions whose shortcut another app already holds.
-    func register() -> Set<WindowAction> {
+    /// Registers every bound shortcut; returns the actions whose shortcut the system refused.
+    /// (macOS accepts a combination another app has also registered, so this does not detect
+    /// every clash with other apps.)
+    func register(_ bindings: WindowShortcutBindings) -> Set<WindowAction> {
         unregister()
         installHandler()
         var taken: Set<WindowAction> = []
         for (index, action) in WindowAction.allCases.enumerated() {
-            let shortcut = WindowShortcut.default(for: action)
+            guard let shortcut = bindings.shortcut(for: action) else { continue }
             var ref: EventHotKeyRef?
             let status = RegisterEventHotKey(UInt32(shortcut.keyCode), UInt32(shortcut.modifiers),
                                              EventHotKeyID(signature: Self.signature, id: UInt32(index)),

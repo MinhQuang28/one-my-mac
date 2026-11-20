@@ -392,9 +392,41 @@ public final class BrightnessCoordinator: ObservableObject {
         // with a gamma ramp or a shade window, then undoing it when DDC comes back, is exactly the
         // flash on wake and boot this is meant to remove. Not either when the display already holds
         // the saved value, so a settle does not put a pointless write on every monitor's bus.
+        //
+        // "Already holds" is judged at the controller's own resolution. DDC reports whole steps of
+        // its raw range (1/100 on most monitors), so a saved 0.4375 reads back as 0.44 and a tighter
+        // tolerance turned almost every settle and wake into exactly the redundant write this guard
+        // exists to skip.
+        let tolerance: Float = decision.kind == .ddc ? Self.ddcQuantisationTolerance : 0.0005
         guard reassertSaved, !retryPending, !holdingForDDC, decision.kind != nil,
-              let saved, abs(saved - probed) > 0.0005 else { return }
+              let saved, abs(saved - probed) > tolerance else { return }
         await setBrightness(saved, for: display)
+    }
+
+    /// Half a step of the common 0…100 DDC range: closer than this and the monitor is already on
+    /// the nearest value it can represent.
+    static let ddcQuantisationTolerance: Float = 0.005
+
+    // MARK: - Manual recovery
+
+    /// Probes a display again on request — the "Retry" beside "Waiting for DDC…".
+    ///
+    /// A held display otherwise waits for a settle, a wake or a brightness change; on a desk that
+    /// never sleeps that can be hours, with nothing on screen the user can do about it.
+    public func retryProbe(for display: DisplayDevice) async {
+        await probeAndChoose(display: display)
+    }
+
+    /// Stops waiting for DDC on a held display and dims it in software now.
+    ///
+    /// Drops the evidence that makes a failed probe read as "still booting", so the probe that
+    /// follows resolves to gamma or shade and applies the saved value. Not permanent: the next
+    /// settle seeds the persisted DDC facts again, and a monitor that has come back gets hardware
+    /// control back.
+    public func useSoftwareDimmingNow(for display: DisplayDevice) async {
+        ddcEvidence.remove(display.id)
+        heldForDDC.remove(display.id)
+        await probeAndChoose(display: display)
     }
 
     /// Re-probes after a transient DDC failure instead of leaving the display on software dimming
@@ -469,6 +501,16 @@ public final class BrightnessCoordinator: ObservableObject {
             // re-probed so the app drops to a working fallback rather than silently doing nothing.
             if kind.isHardware {
                 await probeAndChoose(display: display, ddcRetryAttempt: 0, reassertSaved: false)
+                // The value that failed was never sent. When the probe found the monitor answering
+                // again (a stale transport, now rebound), put it through once — not via
+                // `setBrightness`, whose own failure handling would lead straight back here.
+                // Otherwise the display is now held or on its retry ladder, and both of those
+                // re-assert the saved value themselves once DDC returns.
+                if chosen[display.id] == kind, !heldForDDC.contains(display.id) {
+                    states[display.id] = BrightnessState(
+                        requestedValue: clamped, effectiveValue: clamped, controller: kind)
+                    try? await controllerInstance(kind).setBrightness(clamped, display: display)
+                }
             }
         }
     }

@@ -27,6 +27,16 @@ public struct BatterySnapshot: Equatable, Sendable {
         return min(100, Double(max) / Double(design) * 100)
     }
 
+    /// Charge in percent. `CurrentCapacity` is a percentage on Apple Silicon (`MaxCapacity` is 100
+    /// there) but mAh on Intel, so it is always read as a share of `MaxCapacity`; without that key a
+    /// value above 100 can only be mAh and is measured against the raw full-charge capacity.
+    static func percent(current: Int?, max: Int?, rawMax: Int?) -> Int {
+        guard let current else { return 0 }
+        let full = max.flatMap { $0 > 0 ? $0 : nil } ?? (current > 100 ? rawMax : nil)
+        guard let full, full > 0 else { return Swift.min(Swift.max(current, 0), 100) }
+        return Swift.min(Swift.max(Int((Double(current) / Double(full) * 100).rounded()), 0), 100)
+    }
+
     public init(registry dict: [String: Any], fallbackTemperature: Double?) {
         let nested = dict["BatteryData"] as? [String: Any] ?? [:]
         func int(_ key: String) -> Int? {
@@ -40,7 +50,8 @@ public struct BatterySnapshot: Equatable, Sendable {
             return Int64(bitPattern: n.uint64Value)
         }
 
-        percent = int("CurrentCapacity") ?? 0
+        let rawMax = int("AppleRawMaxCapacity") ?? int("NominalChargeCapacity") ?? int("FullChargeCapacity")
+        percent = Self.percent(current: int("CurrentCapacity"), max: int("MaxCapacity"), rawMax: rawMax)
         isCharging = dict["IsCharging"] as? Bool ?? false
         isPluggedIn = dict["ExternalConnected"] as? Bool ?? false
         isFullyCharged = dict["FullyCharged"] as? Bool ?? false
@@ -59,7 +70,7 @@ public struct BatterySnapshot: Equatable, Sendable {
         }
 
         designCapacity = int("DesignCapacity")
-        maxCapacity = int("AppleRawMaxCapacity") ?? int("NominalChargeCapacity") ?? int("FullChargeCapacity")
+        maxCapacity = rawMax
 
         if let raw = int("Temperature") ?? int("VirtualTemperature"), raw > 0 {
             temperature = Double(raw) / 100

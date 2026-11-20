@@ -8,6 +8,8 @@ enum ConfigPersistenceIssue: Equatable, Sendable {
     case loadFailed(String)
     case saveFailed(String)
     case corruptConfigRecovered(backupPath: String?)
+    /// The file was readable but some entries (button mappings, device profiles) were not.
+    case entriesDropped(backupPath: String?)
 
     var message: String {
         switch self {
@@ -22,6 +24,12 @@ enum ConfigPersistenceIssue: Equatable, Sendable {
         case .corruptConfigRecovered(nil):
             return tr("Settings were unreadable and could not be backed up. Defaults are in use; the file on disk is untouched until you retry.",
                       "Tệp cài đặt bị hỏng và không sao lưu được. Đang dùng mặc định; tệp trên đĩa được giữ nguyên cho tới khi bạn thử lại.")
+        case let .entriesDropped(path?):
+            return tr("Some saved settings could not be read and were left out. The original file was backed up to \(path).",
+                      "Một số cài đặt đã lưu không đọc được và đã bị bỏ qua. Tệp gốc được sao lưu tại \(path).")
+        case .entriesDropped(nil):
+            return tr("Some saved settings could not be read and the file could not be backed up. Changes are not saved until you choose to overwrite it.",
+                      "Một số cài đặt đã lưu không đọc được và không sao lưu được tệp. Thay đổi chưa được lưu cho tới khi bạn chọn ghi đè.")
         }
     }
 }
@@ -91,17 +99,20 @@ final class ConfigStore: ObservableObject {
             do {
                 let data = try Data(contentsOf: fileURL)
                 do {
-                    config = try JSONDecoder().decode(AppConfig.self, from: data)
+                    let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
+                    config = decoded
+                    // Tolerant decoding drops what it cannot read (an action from a newer build, a
+                    // non-object file) and the next save would erase it for good: keep a copy.
+                    if AppConfig.decodingLosesEntries(data, decoded: decoded) {
+                        let backupPath = Self.backUp(fileURL)
+                        if backupPath == nil { protectsUnreadableConfig = true }
+                        initialIssue = .entriesDropped(backupPath: backupPath)
+                        NSLog("Mousse: config had unreadable entries; backup: %@", backupPath ?? "failed")
+                    }
                 } catch {
                     // Undecodable: keep a copy before defaults replace it on the next save.
-                    let backupURL = Self.corruptBackupURL(for: fileURL)
-                    var backupPath: String?
-                    do {
-                        try FileManager.default.copyItem(at: fileURL, to: backupURL)
-                        backupPath = backupURL.path
-                    } catch {
-                        protectsUnreadableConfig = true
-                    }
+                    let backupPath = Self.backUp(fileURL)
+                    if backupPath == nil { protectsUnreadableConfig = true }
                     config = AppConfig()
                     initialIssue = .corruptConfigRecovered(backupPath: backupPath)
                     NSLog("Mousse: config could not be decoded; defaults loaded, backup: %@",
@@ -164,6 +175,17 @@ final class ConfigStore: ObservableObject {
         } catch {
             persistenceIssue = .saveFailed(error.localizedDescription)
             NSLog("Mousse: config save failed: %@", error.localizedDescription)
+        }
+    }
+
+    /// Copies the config aside as `config-corrupt-…`; nil when the copy failed.
+    private static func backUp(_ url: URL) -> String? {
+        let backupURL = corruptBackupURL(for: url)
+        do {
+            try FileManager.default.copyItem(at: url, to: backupURL)
+            return backupURL.path
+        } catch {
+            return nil
         }
     }
 

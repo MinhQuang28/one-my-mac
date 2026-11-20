@@ -131,14 +131,19 @@ public final class ShadeBrightnessController: BrightnessController {
         window.isOpaque = false
         window.hasShadow = false
         window.ignoresMouseEvents = true
-        // Below the menu bar on purpose: the user must always be able to reach the app's own
-        // "Reset Dimming" command, even at maximum shade.
+        // Above everything, the menu bar included, so the whole display dims evenly. That is safe
+        // because the shade never takes a click (`ignoresMouseEvents`) and never reaches full
+        // opacity (`maximumOpacity`): the menu bar and the app's own "Reset Dimming" command stay
+        // visible and reachable underneath it at any setting.
         window.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.maximumWindow)) - 1)
         window.collectionBehavior = [
-            .canJoinAllSpaces,   // follows the user across Spaces instead of dimming only one
-            .stationary,         // not dragged around by Mission Control
-            .ignoresCycle,       // absent from the app switcher
-            .fullScreenNone,     // never becomes its own full-screen Space
+            .canJoinAllSpaces,     // follows the user across Spaces instead of dimming only one
+            .stationary,           // not dragged around by Mission Control
+            .ignoresCycle,         // absent from the app switcher
+            // Shown over other apps' full-screen Spaces too. `.fullScreenNone` kept the shade out
+            // of them, so a shade-dimmed display went back to full brightness whenever an app went
+            // full screen on it.
+            .fullScreenAuxiliary,
         ]
         window.animationBehavior = .none
         return window

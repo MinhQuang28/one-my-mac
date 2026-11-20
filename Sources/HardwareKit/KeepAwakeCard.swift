@@ -23,6 +23,7 @@ public struct KeepAwakeCard: View {
     }
 
     private var subtitle: String {
+        if let message = keepAwake.message { return message }
         guard keepAwake.isActive else {
             return tr("Mac and display sleep per macOS settings", "Máy và màn hình ngủ theo cài đặt macOS")
         }

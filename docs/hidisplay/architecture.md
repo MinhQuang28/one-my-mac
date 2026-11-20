@@ -222,8 +222,10 @@ which is exactly why nothing there is allowed to hold logic worth testing.
   change and writes nothing; `performInstall` is the only path that can raise an authorization prompt,
   and it runs after the user has seen the plan. What the plan reports as discarded — foreign entries, a
   patched EDID — has to reach the UI, since after the write it is only recoverable from the backup.
-- `LoginItem` treats `.requiresApproval` as a state to explain, not an error: registration succeeding
-  while the switch is off in System Settings is normal, not a failure.
+- Launch at login is owned by the OneMac shell (`Sources/OneMac`), not this module; the module's own
+  `LoginItem` went with the standalone window. The rule it encoded still applies there:
+  `.requiresApproval` is a state to explain, not an error — registration succeeding while the switch
+  is off in System Settings is normal.
 
 ## Diagnostics
 

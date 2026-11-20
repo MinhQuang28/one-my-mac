@@ -60,11 +60,11 @@ struct DisplayCard: View {
                         "Độ sáng màn tích hợp do macOS điều khiển (phím F1/F2)."))
                     .font(.system(size: FS.label)).foregroundStyle(.secondary)
             } else if controller != nil {
-                Slider(value: Binding(get: { Double(brightness) },
-                                      set: { model.setBrightness(Float($0), for: display) }), in: 0...1) {
-                    Text(tr("\(display.name) brightness", "Độ sáng \(display.name)"))
-                }
-                .labelsHidden().controlSize(.small)
+                CapsuleSlider(
+                    value: Binding(get: { Double(brightness) },
+                                   set: { model.setBrightness(Float($0), for: display) }),
+                    icon: "sun.max.fill",
+                    label: tr("\(display.name) brightness", "Độ sáng \(display.name)"))
             } else if phase == .probing {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)

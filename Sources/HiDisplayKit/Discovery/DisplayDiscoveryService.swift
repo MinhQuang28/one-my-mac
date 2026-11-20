@@ -178,7 +178,12 @@ public final class DisplayDiscoveryService: ObservableObject {
     private func publish(_ resolved: [Snapshot]) {
         needsRefresh = false
         displays = resolved.map(\.device)
-        ambiguousKeys = Set(resolved.filter { $0.pairing == .ambiguous }.map(\.device.id))
+        // A display the user has pinned is confirmed by definition: the notice asking them to
+        // confirm it must not come back on every refresh.
+        ambiguousKeys = Set(
+            resolved
+                .filter { $0.pairing == .ambiguous && $0.device.identity.userAssignedID == nil }
+                .map(\.device.id))
         if !ambiguousKeys.isEmpty {
             Log.discovery.notice("\(self.ambiguousKeys.count, privacy: .public) display(s) need the user to confirm identity")
         }

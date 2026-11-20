@@ -13,48 +13,82 @@ public enum DisplayModeSwitcher {
         case modeNotFound
         case configurationFailed(CGError)
         case sameMode
+        /// The display mirrors another one; its mode is driven by the display it mirrors.
+        case mirrored
+        /// The transaction completed but the display never reported the requested mode.
+        case notApplied(CGError)
 
         public var description: String {
             switch self {
             case .modeNotFound: return "that mode is no longer offered by the display"
             case .configurationFailed(let error): return "CoreGraphics rejected the change (error \(error.rawValue))"
             case .sameMode: return "the display is already using that mode"
+            case .mirrored: return "the display is mirroring another one; change the resolution there"
+            case .notApplied(let error): return "the display did not switch to that mode (result \(error.rawValue))"
             }
         }
     }
 
+    /// How long to wait for the display to report the new mode after the transaction completes.
+    static let confirmTimeout: Duration = .seconds(5)
+
     /// Switches `displayID` to `mode`, returning the mode that was replaced so the caller can revert.
     ///
-    /// The whole change goes through one begin/complete transaction: a partially-applied configuration
-    /// is how a multi-display setup ends up with overlapping frames.
+    /// Runs on `DisplayConfigurator`'s queue, not the caller's thread: completing the transaction
+    /// blocks for seconds. The whole change goes through one begin/complete transaction — a
+    /// partially-applied configuration is how a multi-display setup ends up with overlapping frames.
+    ///
+    /// `.permanently` rather than `.forSession`: a session-scoped change still leaves the user stuck
+    /// until they log out, which is not meaningfully safer. Recoverability comes from the caller's
+    /// revert timer, not from the scope.
     @discardableResult
-    public static func apply(_ mode: DisplayMode, to displayID: CGDirectDisplayID) throws -> DisplayMode {
+    public static func apply(_ mode: DisplayMode, to displayID: CGDirectDisplayID) async throws -> DisplayMode {
         guard let previous = DisplayModeService.currentMode(for: displayID) else {
             throw SwitchError.modeNotFound
         }
         guard previous.id != mode.id else { throw SwitchError.sameMode }
-        guard let cgMode = findCGMode(matching: mode, on: displayID) else {
-            throw SwitchError.modeNotFound
+        // Setting a mode on a mirror target hangs or fails; its source owns the mode.
+        guard CGDisplayMirrorsDisplay(displayID) == kCGNullDirectDisplay else { throw SwitchError.mirrored }
+
+        guard findCGMode(matching: mode, on: displayID) != nil
+            || findHiddenMode(matching: mode, on: displayID) != nil
+        else { throw SwitchError.modeNotFound }
+
+        // Resolved again inside the transaction, by shape: mode IDs and SkyLight mode numbers are both
+        // renumbered whenever macOS rebuilds the list (reconnect, override change, sleep).
+        let result = await DisplayConfigurator.shared.perform { config in
+            if let cgMode = findCGMode(matching: mode, on: displayID) {
+                return CGConfigureDisplayWithDisplayMode(config, displayID, cgMode, nil)
+            }
+            guard let hidden = findHiddenMode(matching: mode, on: displayID) else { return .illegalArgument }
+            return SkyLightDisplayShim.shared.configureMode(config, displayID, modeNumber: hidden.modeNumber)
         }
 
-        var config: CGDisplayConfigRef?
-        let begin = CGBeginDisplayConfiguration(&config)
-        guard begin == .success, let config else { throw SwitchError.configurationFailed(begin) }
-
-        let set = CGConfigureDisplayWithDisplayMode(config, displayID, cgMode, nil)
-        guard set == .success else {
-            CGCancelDisplayConfiguration(config)
-            throw SwitchError.configurationFailed(set)
+        // WindowServer's result can be wrong in both directions, so the display's own report of its
+        // current mode decides — a success code with the old mode still showing is a failure.
+        let applied = await DisplayConfigurator.waitUntil(timeout: confirmTimeout) {
+            DisplayModeService.currentMode(for: displayID).map { sameShape($0, mode, tolerance: 1) } ?? false
         }
-
-        // `.permanently` rather than `.forSession`: a session-scoped change still leaves the user stuck
-        // until they log out, which is not meaningfully safer. Recoverability comes from the caller's
-        // revert timer, not from the scope.
-        let complete = CGCompleteDisplayConfiguration(config, .permanently)
-        guard complete == .success else { throw SwitchError.configurationFailed(complete) }
+        guard applied else {
+            throw result == .success ? SwitchError.notApplied(result) : SwitchError.configurationFailed(result)
+        }
 
         Log.modes.notice("switched display to \(mode.id, privacy: .public) from \(previous.id, privacy: .public)")
         return previous
+    }
+
+    /// Same logical and backing size, whatever the refresh rate.
+    static func sameGeometry(_ lhs: DisplayMode, _ rhs: DisplayMode) -> Bool {
+        lhs.width == rhs.width && lhs.height == rhs.height
+            && lhs.pixelWidth == rhs.pixelWidth && lhs.pixelHeight == rhs.pixelHeight
+    }
+
+    /// Same geometry and refresh rate, whichever list the mode came from.
+    ///
+    /// `tolerance` is 0.5 Hz between two CoreGraphics modes, which keeps 59.94 and 60 apart. Pass 1
+    /// when either side came from SkyLight, which truncates to whole hertz (59.94 reads as 59).
+    static func sameShape(_ lhs: DisplayMode, _ rhs: DisplayMode, tolerance: Double = 0.5) -> Bool {
+        sameGeometry(lhs, rhs) && abs(lhs.refreshRate - rhs.refreshRate) < tolerance
     }
 
     /// Re-finds the live `CGDisplayMode` for a value-type `DisplayMode`.
@@ -75,6 +109,13 @@ public enum DisplayModeSwitcher {
                 && abs(candidate.refreshRate - mode.refreshRate) < 0.5
                 && candidate.isUsableForDesktopGUI()
         }
+    }
+
+    /// The SkyLight-only mode of this shape, for modes CoreGraphics does not list.
+    static func findHiddenMode(
+        matching mode: DisplayMode, on displayID: CGDirectDisplayID
+    ) -> SkyLightDisplayShim.HiddenMode? {
+        SkyLightDisplayShim.shared.modes(for: displayID).first { sameShape($0.mode, mode) }
     }
 
     // MARK: - Curation

@@ -148,6 +148,9 @@ struct AppConfig: Codable, Sendable, Equatable {
                                          // wheel scrolls horizontally): purpose-built for
                                          // horizontal-first browsers like Nimble Commander's Brief
                                          // panels — smoothing stays on, we transpose ourselves
+    var zoomWithCommand: Bool = true     // ⌘+wheel zooms; off = the app gets its own ⌘+wheel
+    var passControlScroll: Bool = false  // leave ⌃+wheel to macOS (Accessibility zoom) instead of
+                                         // using it for quick scroll
     var mappings: [ButtonMapping] = AppConfig.defaultMappings
     var deviceProfiles: [DeviceProfile] = [] // per-mouse scroll overrides (need Input Monitoring)
 
@@ -199,6 +202,7 @@ extension AppConfig {
         case spaceDragButton, spaceDragThreshold, spaceDragReverse, spaceDragFollowFinger
         case spaceDragLockPointer
         case excludedBundleIDs, verticalToHorizontalBundleIDs, mappings, deviceProfiles
+        case zoomWithCommand, passControlScroll
     }
 
     /// Contains an element's decode failure to that element instead of failing the whole array.
@@ -237,6 +241,8 @@ extension AppConfig {
         spaceDragLockPointer = field(Bool.self, .spaceDragLockPointer) ?? spaceDragLockPointer
         excludedBundleIDs  = field([String].self, .excludedBundleIDs) ?? excludedBundleIDs
         verticalToHorizontalBundleIDs = field([String].self, .verticalToHorizontalBundleIDs) ?? verticalToHorizontalBundleIDs
+        zoomWithCommand    = field(Bool.self,   .zoomWithCommand)    ?? zoomWithCommand
+        passControlScroll  = field(Bool.self,   .passControlScroll)  ?? passControlScroll
         mappings           = field([Lossy<ButtonMapping>].self, .mappings)?.compactMap(\.value) ?? mappings
         // Lossy per profile, and one profile per device (first wins, like button mappings).
         var seenDevices = Set<String>()
@@ -274,7 +280,26 @@ extension AppConfig {
         try c.encode(spaceDragLockPointer, forKey: .spaceDragLockPointer)
         try c.encode(excludedBundleIDs, forKey: .excludedBundleIDs)
         try c.encode(verticalToHorizontalBundleIDs, forKey: .verticalToHorizontalBundleIDs)
+        try c.encode(zoomWithCommand, forKey: .zoomWithCommand)
+        try c.encode(passControlScroll, forKey: .passControlScroll)
         try c.encode(mappings, forKey: .mappings)
         try c.encode(deviceProfiles, forKey: .deviceProfiles)
+    }
+}
+
+extension AppConfig {
+    /// Whether decoding `data` tolerantly would silently leave something out: the top level is not
+    /// an object (everything falls back to defaults), or a mapping / device profile could not be
+    /// read and was dropped. The next save would erase those for good, so the caller backs the
+    /// file up first. `decoded` is what `init(from:)` made of the same data.
+    static func decodingLosesEntries(_ data: Data, decoded: AppConfig) -> Bool {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return true }
+        func lost(_ key: CodingKeys, kept: Int) -> Bool {
+            guard let raw = object[key.rawValue] else { return false }
+            guard let list = raw as? [Any] else { return true } // present, but not a list at all
+            return list.count > kept
+        }
+        return lost(.mappings, kept: decoded.mappings.count)
+            || lost(.deviceProfiles, kept: decoded.deviceProfiles.count)
     }
 }

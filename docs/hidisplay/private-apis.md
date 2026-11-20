@@ -95,6 +95,32 @@ error and must not be treated as a failed write.
 **Degrade path:** if either required symbol is missing, native brightness reports unsupported. Nothing
 in the app depends on it today, so the practical effect is one line in the diagnostics report.
 
+### SkyLight / CoreGraphics SPI — display modes and enable
+
+Bound in `PlatformShims/SkyLightDisplayShim.swift`, ported from S-Display (layout and names from
+Crisp, MIT). **Evidence level: experimental observation.** Each symbol is looked up under both its
+`SLS` and `CGS` prefix; any that is missing hides its feature rather than failing.
+
+| Symbol | Assumed signature | Used for | macOS 27.2 |
+| --- | --- | --- | --- |
+| `CGSGetNumberOfDisplayModes` | `(CGDirectDisplayID, int*) -> CGError` | listing modes CoreGraphics hides | **present** |
+| `CGSGetDisplayModeDescriptionOfLength` | `(CGDirectDisplayID, int index, void*, int length) -> CGError` | same | **present** |
+| `CGSConfigureDisplayMode` | `(CGDisplayConfigRef, CGDirectDisplayID, int modeNumber) -> CGError` | selecting a hidden mode | **present** |
+| `SLSConfigureDisplayEnabled` | `(CGDisplayConfigRef, CGDirectDisplayID, bool) -> CGError` | soft reconnect after an override change | **present** |
+| `SLSGetDisplayList` | `(uint32 max, CGDirectDisplayID*, uint32* count) -> CGError` | finding a display while it is disabled | **present** |
+
+- `CGSConfigureDisplayMode`'s first argument is the transaction token from
+  `CGBeginDisplayConfiguration`; passing a connection id crashes on macOS 26+.
+- `CGSDisplayModeDescription` is read by offset from a 212-byte buffer: mode number @0, flags @4
+  (`0x40000000` = not usable for the desktop), width @8, height @12, refresh Hz @190 (UInt16,
+  **truncated** — 59.94 Hz reads as 59), backing scale @208 (Float). Values outside sane bounds
+  are discarded, so a layout change degrades to "no hidden modes".
+- Only HiDPI modes with no CoreGraphics twin are taken from this list, and a mode CoreGraphics
+  lists is always switched through the public API.
+- A display disabled with `SLSConfigureDisplayEnabled` stays off after the process exits, so
+  `DisplayReconnector` persists a marker first and re-enables stranded displays at next launch.
+  It refuses to run unless another viewable display stays on.
+
 ## Observed-but-undocumented data layouts
 
 Not private *symbols*, but equally undocumented, so held to the same standard.
@@ -185,7 +211,7 @@ override files that corrected an earlier wrong assumption about the format.
 
 ## Enforcement
 
-`SymbolResolution.swift` is the only place `dlsym` is called. To check nothing has crept in:
+`SymbolResolution.swift` is the only place `dlsym` is called in the display modules. To check nothing has crept in:
 
 ```sh
 grep -rn 'dlsym(\|dlopen(' Sources/ | grep -v 'PlatformShims/'
@@ -207,7 +233,7 @@ That command must produce no output. Any new symbol requires an entry in this fi
 
 ## What is deliberately *not* used
 
-- **`CGSDisplay*` / SkyLight private APIs** — not needed; `CGSetDisplayTransferByFormula` is public and
-  sufficient for gamma dimming.
+- **SkyLight private APIs for gamma** — not needed; `CGSetDisplayTransferByFormula` is public and
+  sufficient for gamma dimming. (SkyLight *is* used for display modes and enable — see above.)
 - **Private APIs for flexible scaling** — deferred past the MVP behind a feature flag, per the plan.
 - **`SMJobBless`** — deprecated. The privileged helper will use `SMAppService` (macOS 13+).

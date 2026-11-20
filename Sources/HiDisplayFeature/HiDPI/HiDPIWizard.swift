@@ -52,9 +52,16 @@ struct HiDPIWizard: View {
     /// described rather than re-planning against a file that may have changed in between.
     @State private var pendingInstall: (plan: InstallationPlan, generated: GeneratedOverride)?
     @State private var showRestartPrompt = false
+    /// True from the confirmation until the privileged install returns. The password prompt is not
+    /// modal to this window any more, so the buttons that would start a second install are held.
+    @State private var isInstalling = false
+    /// Bumped after an install so the undo card re-reads what is on disk.
+    @State private var installGeneration = 0
     /// Whether the display just installed for can be unplugged, which decides what the apply prompt
     /// leads with. Captured at plan time because the prompt is shown after `pendingInstall` is cleared.
     @State private var installedDisplayIsExternal = false
+    /// The display being installed for, kept past `pendingInstall` so it can be reconnected after.
+    @State private var installDisplay: DisplayDevice?
     @State private var recoveryPackagePath: String?
     @State private var resultMessage: String?
     @State private var resultError: String?
@@ -254,10 +261,12 @@ struct HiDPIWizard: View {
                 Button(tr("Export Only…", "Chỉ xuất…")) {
                     if let display { exportPackage(display: display, generated: generated) }
                 }
-                .disabled(!canProceed)
+                .disabled(!canProceed || isInstalling)
+                if isInstalling { ProgressView().controlSize(.small) }
                 Button(tr("Install…", "Cài đặt…")) {
                     if let display { install(display: display, generated: generated) }
                 }
+                .disabled(isInstalling)
                 .buttonStyle(.borderedProminent)
                 .disabled(!canProceed)
             }
@@ -280,6 +289,7 @@ struct HiDPIWizard: View {
         VStack(alignment: .leading, spacing: 14) {
             warningBanner
             if let display {
+                InstalledOverrideCard(display: display).id("\(display.id)-\(installGeneration)")
                 scalingSlider(display)
                 ladderControls(display)
                 resolutionList(display)
@@ -353,10 +363,8 @@ struct HiDPIWizard: View {
                     Text(staged.label).font(.callout).monospacedDigit()
                 }
 
-                Slider(value: $scalingIndex, in: 0...Double(steps.count - 1), step: 1) {
-                    Text(tr("Custom scaling", "Tỉ lệ tùy chỉnh"))
-                }
-                .labelsHidden()
+                CapsuleSlider(value: $scalingIndex, in: 0...Double(steps.count - 1), step: 1,
+                              label: tr("Custom scaling", "Tỉ lệ tùy chỉnh"))
 
                 HStack {
                     Text(tr("Larger text", "Chữ to hơn")).font(.caption).foregroundStyle(.secondary)
@@ -802,6 +810,7 @@ struct HiDPIWizard: View {
         recoveryPackagePath = nil
         guard let generated else { return }
         installedDisplayIsExternal = !display.isBuiltIn
+        installDisplay = display
 
         do {
             pendingInstall = (try model.planInstall(generated, for: display), generated)
@@ -841,37 +850,64 @@ struct HiDPIWizard: View {
                 + plan.droppedUnknownKeys.map { "  • \($0)" }.joined(separator: "\n"))
         }
         parts.append(tr(
-            "Takes effect after you reconnect the display, or log out and back in. "
-            + "To undo it without this app:\n",
-            "Có hiệu lực sau khi cắm lại màn hình, hoặc đăng xuất rồi đăng nhập lại. "
-            + "Để hoàn tác không cần ứng dụng này:\n") + plan.recoveryCommand)
+            "OneMac then reconnects the display to apply it — the screen goes dark for a few "
+            + "seconds. If that is not possible, it takes effect after you reconnect the display, "
+            + "or log out and back in. To undo it without this app:\n",
+            "Sau đó OneMac kết nối lại màn hình để áp dụng — màn hình sẽ tối vài giây. Nếu không "
+            + "làm được, thay đổi có hiệu lực sau khi cắm lại màn hình, hoặc đăng xuất rồi đăng "
+            + "nhập lại. Để hoàn tác không cần ứng dụng này:\n") + plan.recoveryCommand)
         return parts.joined(separator: "\n\n")
     }
 
     /// Step two: the user has seen the plan and said yes. This is the only path that asks for a password.
     private func confirmInstall() {
-        guard let pending = pendingInstall else { return }
+        guard let pending = pendingInstall, !isInstalling else { return }
         pendingInstall = nil
+        isInstalling = true
 
-        switch model.performInstall(pending.plan) {
-        case .installed(let package, let requiresLogout):
-            recoveryPackagePath = package.path
-            resultMessage = tr("""
-                Installed and verified.
+        Task {
+            let outcome = await model.performInstall(pending.plan)
+            isInstalling = false
+            installGeneration += 1
+            switch outcome {
+            case .installed(let package, let requiresLogout):
+                recoveryPackagePath = package.path
+                resultMessage = tr("""
+                    Installed and verified.
 
-                A recovery package with the previous file and an undo script is in \
-                \(package.lastPathComponent) in your Downloads folder.
-                """, """
-                Đã cài đặt và kiểm chứng.
+                    A recovery package with the previous file and an undo script is in \
+                    \(package.lastPathComponent) in your Downloads folder. OneMac keeps its own \
+                    copy too, so the install can also be undone from this page.
+                    """, """
+                    Đã cài đặt và kiểm chứng.
 
-                Gói khôi phục chứa tệp cũ và script hoàn tác nằm trong \
-                \(package.lastPathComponent) ở thư mục Downloads.
-                """)
-            showRestartPrompt = requiresLogout
-        case .cancelled:
-            resultMessage = tr("Cancelled — nothing was changed.", "Đã hủy — chưa thay đổi gì.")
-        case .failed(let message):
-            resultError = message
+                    Gói khôi phục chứa tệp cũ và script hoàn tác nằm trong \
+                    \(package.lastPathComponent) ở thư mục Downloads. OneMac cũng giữ một bản \
+                    riêng, nên có thể hoàn tác ngay từ trang này.
+                    """)
+                guard requiresLogout else { break }
+                // Reconnecting the display in software applies the override now. Anything that
+                // stops it — a single display, a macOS without the SPI, a display that will not
+                // blink — falls back to the replug / log-out prompt.
+                if let display = installDisplay, model.canReloadOverride(for: display) {
+                    isInstalling = true
+                    let failure = await model.reloadOverride(for: display)
+                    isInstalling = false
+                    if failure == nil {
+                        resultMessage = (resultMessage ?? "") + "\n\n" + tr(
+                            "The display was reconnected, so the new resolutions are available now.",
+                            "Màn hình đã được kết nối lại nên các độ phân giải mới dùng được ngay.")
+                    } else {
+                        showRestartPrompt = true
+                    }
+                } else {
+                    showRestartPrompt = true
+                }
+            case .cancelled:
+                resultMessage = tr("Cancelled — nothing was changed.", "Đã hủy — chưa thay đổi gì.")
+            case .failed(let message):
+                resultError = message
+            }
         }
     }
 
@@ -897,6 +933,18 @@ struct HiDPIWizard: View {
                 generated: generated, display: display, policy: AppModel.installPolicy)
 
             let package = try RecoveryPackageBuilder.create(manifest: plan.manifest, in: downloads)
+
+            // The backup is what restore.command puts back. Without it the package's manifest says
+            // "a file existed before" while backup/ is empty, and the undo the message below
+            // promises fails with "backup file missing" — on exactly the displays that already
+            // have an override, where undo matters most.
+            do {
+                try installer.stageBackups(for: plan.manifest, into: package.backupDirectory)
+            } catch InstallerError.manifestMismatch {
+                try? FileManager.default.removeItem(at: package.directory)
+                resultError = AppModel.planIsStaleMessage
+                return
+            }
 
             // The file to install sits next to the recovery package, named exactly as it must be on
             // disk, so the install command is a plain copy with no renaming step to get wrong.

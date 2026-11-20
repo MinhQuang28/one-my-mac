@@ -6,6 +6,9 @@ public enum WindowAction: String, Codable, CaseIterable, Hashable, Sendable {
     case topLeft, topRight, bottomLeft, bottomRight
     case maximize, center, restore
     case nextDisplay, previousDisplay
+    // Added later: keep new cases at the end so nothing that indexes `allCases` shifts.
+    case leftThird, centerThird, rightThird, leftTwoThirds, rightTwoThirds
+    case almostMaximize
 
     public var title: String {
         switch self {
@@ -22,6 +25,12 @@ public enum WindowAction: String, Codable, CaseIterable, Hashable, Sendable {
         case .restore: return tr("Restore", "Về kích thước cũ")
         case .nextDisplay: return tr("Next Display", "Sang màn hình kế")
         case .previousDisplay: return tr("Previous Display", "Sang màn hình trước")
+        case .leftThird: return tr("Left Third", "Một phần ba trái")
+        case .centerThird: return tr("Centre Third", "Một phần ba giữa")
+        case .rightThird: return tr("Right Third", "Một phần ba phải")
+        case .leftTwoThirds: return tr("Left Two Thirds", "Hai phần ba trái")
+        case .rightTwoThirds: return tr("Right Two Thirds", "Hai phần ba phải")
+        case .almostMaximize: return tr("Almost Maximize", "Gần toàn màn hình")
         }
     }
 
@@ -40,6 +49,12 @@ public enum WindowAction: String, Codable, CaseIterable, Hashable, Sendable {
         case .restore: return "arrow.uturn.backward"
         case .nextDisplay: return "rectangle.righthalf.inset.filled.arrow.right"
         case .previousDisplay: return "rectangle.lefthalf.inset.filled.arrow.left"
+        case .leftThird: return "rectangle.leadingthird.inset.filled"
+        case .centerThird: return "rectangle.split.3x1.fill"
+        case .rightThird: return "rectangle.trailingthird.inset.filled"
+        case .leftTwoThirds: return "rectangle.leadinghalf.inset.filled"
+        case .rightTwoThirds: return "rectangle.trailinghalf.inset.filled"
+        case .almostMaximize: return "rectangle.inset.filled"
         }
     }
 }

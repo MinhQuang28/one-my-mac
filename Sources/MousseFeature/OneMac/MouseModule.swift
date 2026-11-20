@@ -10,8 +10,12 @@ public enum MouseModule {
         EventTapEngine.shared.start(config: ConfigStore.shared.config)
     }
 
-    /// The config write is debounced; flush a change made in the last half second.
-    public static func stop() { ConfigStore.shared.flushPendingSave() }
+    /// Ends any gesture still in flight (scroll, pinch, Space drag, pinned pointer) and flushes
+    /// the debounced config write, so a change made in the last half second survives the quit.
+    public static func stop() {
+        EventTapEngine.shared.shutdown()
+        ConfigStore.shared.flushPendingSave()
+    }
 }
 
 /// One settings page from the Mousse feature.
@@ -50,11 +54,13 @@ public struct MouseCards: View {
 
     public var body: some View {
         VStack(spacing: Gap.sm + 2) {
-            if !AccessibilityPermission.isTrusted {
-                NoticeRow(tr("Accessibility permission is needed to enhance the mouse", "Cần quyền Trợ năng để điều khiển chuột"),
-                          actionTitle: tr("Grant", "Cấp quyền")) {
-                    AccessibilityPermission.openSettings()
-                }
+            // Re-read every 2 s while the panel is open, so the notice clears once the grant lands
+            // and a tap that is failing shows up here, not only on the settings page.
+            TimelineView(.periodic(from: .now, by: 2)) { context in
+                tapNotice(EventTapEngine.shared.tapStatus(now: context.date).health)
+            }
+            if let issue = store.persistenceIssue {
+                NoticeRow(issue.message, actionTitle: tr("Fix…", "Xử lý…")) { Navigator.shared.open(.mouseGeneral) }
             }
             Card {
                 CardHeader(icon: "computermouse.fill", tint: .indigo, title: tr("Mouse", "Chuột"),
@@ -72,9 +78,9 @@ public struct MouseCards: View {
                           isOn: $store.config.scrollSettings.reverseScrollHorizontal)
                 if store.config.scrollMode != .native {
                     HStack(spacing: Gap.sm) {
-                        Image(systemName: "speedometer").font(.system(size: FS.body)).foregroundStyle(.secondary).frame(width: 16)
                         Text(tr("Speed", "Tốc độ")).font(.system(size: FS.body))
-                        Slider(value: $store.config.scrollSettings.scrollSpeed, in: 0.05...1.5).controlSize(.small)
+                        CapsuleSlider(value: $store.config.scrollSettings.scrollSpeed, in: 0.05...1.5,
+                                      icon: "speedometer", label: tr("Scroll speed", "Tốc độ cuộn"))
                     }
                 }
                 HStack {
@@ -94,6 +100,24 @@ public struct MouseCards: View {
                     LinkButton(tr("Devices", "Thiết bị")) { Navigator.shared.open(.mouseDevices) }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func tapNotice(_ health: EventTapHealth) -> some View {
+        switch health {
+        case .waitingForPermission:
+            NoticeRow(tr("Accessibility permission is needed to enhance the mouse", "Cần quyền Trợ năng để điều khiển chuột"),
+                      actionTitle: tr("Grant", "Cấp quyền")) {
+                AccessibilityPermission.openSettings()
+            }
+        case .failed:
+            NoticeRow(tr("The mouse engine could not start and keeps retrying.", "Bộ xử lý chuột chưa khởi động được, đang thử lại."),
+                      actionTitle: tr("Details", "Chi tiết")) { Navigator.shared.open(.mouseGeneral) }
+        case .recovering:
+            NoticeRow(tr("The mouse engine is recovering…", "Bộ xử lý chuột đang khôi phục…"))
+        case .initializing, .healthy:
+            EmptyView()
         }
     }
 

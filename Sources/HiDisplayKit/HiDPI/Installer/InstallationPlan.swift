@@ -250,7 +250,18 @@ public struct OverrideInstaller {
     /// package holding that copy would refuse its own backup exactly when it is needed. The planned
     /// payload's merge is equally stale. So a mismatch here throws, and the caller re-plans against
     /// the file as it is now.
+    ///
+    /// The opposite drift is checked too: a plan that found *no* file at the path has a payload
+    /// that was never merged with anything, and nothing to back up. A file that has appeared since
+    /// — another tool installing its own override while the confirmation was open — would be
+    /// overwritten with no backup at all, so that is a mismatch as well.
     public func stageBackups(for manifest: BackupManifest, into backupDirectory: URL) throws {
+        for entry in manifest.entries where !entry.existedBefore {
+            let target = try resolveChecked(entry.relativePath)
+            if let data = fileManager.contents(atPath: target.path) {
+                throw InstallerError.manifestMismatch(expected: "no file", got: SHA256Hash.hex(of: data))
+            }
+        }
         for entry in manifest.entries where entry.existedBefore {
             let source = try resolveChecked(entry.relativePath)
             let backup = backupDirectory.appendingPathComponent(entry.relativePath)

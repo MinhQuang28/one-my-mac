@@ -7,6 +7,19 @@ import SwiftUI
 final class BreakOverlay {
     private var curtains: [NSPanel] = []
     private var notice: NSPanel?
+    private var coversScreens = false
+    private var screenObserver: NSObjectProtocol?
+    private let emergencyExit: EmergencyExit
+
+    /// `onEmergencyExit` runs when the user forces the curtain away (Esc three times).
+    init(onEmergencyExit: @escaping () -> Void) {
+        emergencyExit = EmergencyExit(onExit: onEmergencyExit)
+        // A display plugged in, removed or resized during a break: cover what is there now.
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.rebuildCurtains() }
+        }
+    }
 
     /// Shows the break: a small card at the top centre when `compact`, else a curtain on every display.
     func showBreak(compact: Bool) {
@@ -18,11 +31,23 @@ final class BreakOverlay {
             curtains = [panel]
             return
         }
-        curtains = NSScreen.screens.map { screen in
-            let panel = Self.panel(frame: screen.frame, content: BreakCurtainView())
-            panel.alphaValue = 0
+        coversScreens = true
+        emergencyExit.arm()
+        curtains = Self.curtainPanels(fadeIn: true)
+    }
+
+    private func rebuildCurtains() {
+        guard coversScreens else { return }
+        curtains.forEach { $0.close() }
+        curtains = Self.curtainPanels(fadeIn: false)
+    }
+
+    private static func curtainPanels(fadeIn: Bool) -> [NSPanel] {
+        NSScreen.screens.map { screen in
+            let panel = panel(frame: screen.frame, content: BreakCurtainView())
+            if fadeIn { panel.alphaValue = 0 }
             panel.orderFrontRegardless()
-            panel.animator().alphaValue = 1
+            if fadeIn { panel.animator().alphaValue = 1 }
             return panel
         }
     }
@@ -45,6 +70,8 @@ final class BreakOverlay {
         closeNotice()
         curtains.forEach { $0.close() }
         curtains = []
+        coversScreens = false
+        emergencyExit.disarm()
     }
 
     private func closeNotice() {

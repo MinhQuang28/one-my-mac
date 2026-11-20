@@ -58,6 +58,15 @@ public actor DDCCommandQueue {
     /// The shape currently in use, for diagnostics.
     public var currentFrameShape: DDC.FrameShape { frameShape }
 
+    /// Writes that failed in a row since the last one that reached the monitor.
+    ///
+    /// Writes are fire-and-forget, so nothing upstream sees one fail. This count is how the
+    /// controller notices a monitor that stayed connected but stopped answering — a KVM or input
+    /// switch, DDC/CI turned off in the OSD — instead of moving a slider that does nothing.
+    public private(set) var consecutiveWriteFailures = 0
+    /// Whether any write on this queue has reached the monitor.
+    public private(set) var hasWrittenSuccessfully = false
+
     /// - Parameter initialFrameShape: the shape to try first, normally the one persisted from a
     ///   previous connection to the same display. Wrong is cheap — the null-message fallback in
     ///   `performRead` still re-learns — but starting right skips that round-trip entirely.
@@ -139,7 +148,10 @@ public actor DDCCommandQueue {
             do {
                 try await transport.write(
                     VCPCodec.setRequest(code: .brightness, value: value, shape: frameShape))
+                consecutiveWriteFailures = 0
+                hasWrittenSuccessfully = true
             } catch {
+                consecutiveWriteFailures += 1
                 Log.ddcBrightness.debug("\(self.label, privacy: .public): write failed: \(String(describing: error), privacy: .public)")
                 // Do not retry writes. A brightness write is idempotent and superseded a moment later
                 // by the next slider position, so retrying only adds bus traffic during a drag.

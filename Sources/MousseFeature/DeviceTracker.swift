@@ -50,6 +50,10 @@ final class DeviceTracker: ObservableObject {
     private var hasProfiles = false
     private var tabOpen = false
     private var retryTimer: Timer?
+    /// Restart delay after an open failure that is NOT a missing permission; doubles up to a cap.
+    private var retryDelay = DeviceTracker.minRetryDelay
+    private static let minRetryDelay = 2.0
+    private static let maxRetryDelay = 60.0
 
     /// Whether any per-device profile exists (main thread).
     func setHasProfiles(_ value: Bool) {
@@ -97,7 +101,15 @@ final class DeviceTracker: ObservableObject {
     func sessionOpenFailed(_ s: DeviceTrackerSession) {
         DispatchQueue.main.async { [weak self] in
             guard let self, self.session === s, self.retryTimer == nil else { return }
-            self.retryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            // Missing permission: a cheap poll that restarts only once the grant lands. Any other
+            // failure restarts a whole session (thread, HID manager) each time, so back off
+            // instead of churning every 2 s forever.
+            var delay = DeviceTracker.minRetryDelay
+            if InputMonitoringPermission.isTrusted {
+                delay = self.retryDelay
+                self.retryDelay = min(self.retryDelay * 2, DeviceTracker.maxRetryDelay)
+            }
+            self.retryTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: true) { [weak self] _ in
                 guard let self, InputMonitoringPermission.isTrusted else { return }
                 self.stop()
                 self.update()
@@ -107,7 +119,9 @@ final class DeviceTracker: ObservableObject {
 
     func publish(_ list: [HIDDeviceInfo], from s: DeviceTrackerSession) {
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.session === s, self.connected != list else { return }
+            guard let self, self.session === s else { return }
+            self.retryDelay = DeviceTracker.minRetryDelay // devices are reported: the session is open
+            guard self.connected != list else { return }
             self.connected = list
         }
     }

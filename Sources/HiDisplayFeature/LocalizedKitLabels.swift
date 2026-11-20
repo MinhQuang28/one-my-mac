@@ -37,10 +37,11 @@ extension DisplayKeyTier {
             return tr("Identified by vendor and product only — this monitor reports no serial number.",
                       "Chỉ nhận diện bằng hãng và sản phẩm — màn hình này không báo số sê-ri.")
         case .location:
-            return tr("Identified by its port, because two identical monitors without serial numbers are "
-                        + "attached. Moving it to another port will look like a new display.",
-                      "Nhận diện theo cổng cắm, vì có hai màn hình giống hệt nhau không có số sê-ri. "
-                        + "Đổi sang cổng khác sẽ bị coi là màn hình mới.")
+            return tr("Identified by its port, because two identical monitors are attached and their "
+                        + "serial numbers do not tell them apart. Moving it to another port will look "
+                        + "like a new display.",
+                      "Nhận diện theo cổng cắm, vì có hai màn hình giống hệt nhau mà số sê-ri không "
+                        + "phân biệt được. Đổi sang cổng khác sẽ bị coi là màn hình mới.")
         }
     }
 }

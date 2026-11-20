@@ -13,6 +13,7 @@ struct DisplayPage: View {
     let display: DisplayDevice
     @EnvironmentObject private var model: AppModel
     @State private var showAllResolutions = false
+    @State private var confirmingForget = false
 
     var body: some View {
         SettingsPage(
@@ -194,6 +195,27 @@ struct DisplayPage: View {
                     model.pinIdentity(for: display)
                 }
             }
+            if !display.isBuiltIn {
+                SettingsRow(
+                    tr("Saved settings", "Thiết lập đã lưu"),
+                    detail: tr("Brightness, controller choice and identity confirmation kept for "
+                                + "this display.",
+                               "Độ sáng, lựa chọn bộ điều khiển và xác nhận danh tính được lưu cho "
+                                + "màn hình này.")
+                ) {
+                    Button(tr("Forget…", "Quên…")) { confirmingForget = true }
+                }
+            }
+        }
+        .alert(tr("Forget this display's saved settings?", "Quên thiết lập đã lưu của màn hình này?"),
+               isPresented: $confirmingForget) {
+            Button(tr("Forget", "Quên"), role: .destructive) { model.forgetProfile(key: display.id) }
+            Button(tr("Cancel", "Hủy"), role: .cancel) {}
+        } message: {
+            Text(tr("Its brightness and controller go back to the defaults. Nothing on the monitor "
+                        + "itself or in /Library/Displays is changed.",
+                    "Độ sáng và bộ điều khiển trở về mặc định. Không thay đổi gì trên màn hình hay "
+                        + "trong /Library/Displays."))
         }
     }
 

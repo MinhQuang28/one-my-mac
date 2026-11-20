@@ -40,8 +40,15 @@ final class DockSwipeSynthesizer {
     /// originOffset units per pixel of horizontal drag, so one screen-width of drag ≈ one Space —
     /// 's empirically-derived scaling. More Spaces need less progress each; 63 px is the
     /// inter-Space separator width. Thread-safe (CoreGraphics + SkyLight SPI only, no AppKit).
-    static func horizontalScale() -> Double {
-        let width = CGDisplayBounds(CGMainDisplayID()).width
+    /// The width is that of the display under the pointer — the one whose Spaces slide.
+    static func horizontalScale(at pointer: CGPoint? = CGEvent(source: nil)?.location) -> Double {
+        var display = CGMainDisplayID()
+        if let pointer {
+            var found: CGDirectDisplayID = 0
+            var count: UInt32 = 0
+            if CGGetDisplaysWithPoint(pointer, 1, &found, &count) == .success, count > 0 { display = found }
+        }
+        let width = CGDisplayBounds(display).width
         let n = spaceCount()
         let perSpace = n <= 1 ? 2.0 : 1.0 + 1.0 / Double(n - 1)
         return perSpace / (width + 63)

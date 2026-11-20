@@ -121,6 +121,18 @@ is kept **literally** rather than being quietly dropped:
   against the plan. An unverified privileged write is a write whose outcome you do not know.
 - The recovery package, including the backup of the file being replaced, is created **before** the
   privileged step.
+- Each step of the script exits with its own status and message, so a `mkdir` that fails is not
+  reported as a hash mismatch.
+- The prompt is raised by `/usr/bin/osascript`, launched directly with the script as an argument (no
+  shell in between), **off the main thread**. In-process `NSAppleScript` is main-thread only and held
+  the main run loop — and every event tap on it — for as long as the password dialog was open.
+  `with prompt` names the app in the dialog.
+
+There is a second privileged command, `PrivilegedInstallScript.remove`, used to undo an install that
+had nothing before it. Same allowlist, same owner check on the root. Root verifies the file's SHA-256
+against the hash recorded when the app wrote it and deletes only on a match — one non-recursive
+`rm -f`, then `rmdir` of the vendor folder, which succeeds only if it is empty. A file another tool has
+rewritten is refused. Restoring a *previous* file goes through the install command above, unchanged.
 
 This is the fallback the implementation plan anticipated for builds without notarization (§12.6), not
 the end state. The intended design is still a signed helper registered via `SMAppService` with a narrow

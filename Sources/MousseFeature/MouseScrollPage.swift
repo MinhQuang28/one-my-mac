@@ -17,8 +17,22 @@ struct MouseScrollPage: View {
                 SettingsSection(tr("Hold a key while scrolling", "Giữ phím khi cuộn")) {
                     modifier("⇧ Shift", tr("Scroll horizontally", "Cuộn ngang"))
                     modifier("⌥ Option", tr("Precise — a few pixels per notch", "Chính xác — vài pixel mỗi nấc"))
-                    modifier("⌃ Control", tr("Quick — about half a window per notch", "Nhanh — khoảng nửa cửa sổ mỗi nấc"))
-                    modifier("⌘ Command", tr("Zoom — a real trackpad pinch", "Thu phóng — như chụm ngón trên trackpad"))
+                    if !store.config.passControlScroll {
+                        modifier("⌃ Control", tr("Quick — about half a window per notch", "Nhanh — khoảng nửa cửa sổ mỗi nấc"))
+                    }
+                    if store.config.zoomWithCommand {
+                        modifier("⌘ Command", MagnifySynthesizer.pinchSupported
+                            ? tr("Zoom — a real trackpad pinch", "Thu phóng — như chụm ngón trên trackpad")
+                            : tr("Zoom — sends ⌘+ / ⌘− to the active app", "Thu phóng — gửi ⌘+ / ⌘− tới ứng dụng đang dùng"))
+                    }
+                    SettingsRow(tr("Zoom with ⌘ + wheel", "Thu phóng bằng ⌘ + bánh xe"),
+                                detail: tr("Off = apps get their own ⌘ + wheel. Excluded apps always do.",
+                                           "Tắt = ứng dụng tự xử lý ⌘ + bánh xe. Ứng dụng loại trừ luôn tự xử lý."),
+                                isOn: $store.config.zoomWithCommand)
+                    SettingsRow(tr("Leave ⌃ + wheel to macOS", "Để ⌃ + bánh xe cho macOS"),
+                                detail: tr("Keeps the Accessibility zoom (scroll with a modifier key) working. Turns off quick scroll.",
+                                           "Giữ tính năng phóng to của Trợ năng (cuộn kèm phím bổ trợ). Tắt cuộn nhanh."),
+                                isOn: $store.config.passControlScroll)
                 }
                 ExcludedAppsView()
                 TransposedAppsView()

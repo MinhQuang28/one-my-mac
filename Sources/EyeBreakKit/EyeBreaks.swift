@@ -23,18 +23,23 @@ public final class EyeBreaks: ObservableObject {
     /// Small card at the top centre instead of a curtain over every display.
     @Published public var compact: Bool { didSet { save(compact, "compact"); overlay.hide() } }
     @Published public var chime: Bool { didSet { save(chime, "chime") } }
+    /// Minutes to the next break next to the menu-bar icon.
+    @Published public var showInMenuBar: Bool { didSet { save(showInMenuBar, "menu_bar") } }
 
     /// Where the schedule stands; nil while eye breaks are off.
     @Published private(set) var phase: BreakSchedule.Phase?
-    /// Counts breaks, so each one shows a different tip.
-    @Published private(set) var breakCount = 0
+    /// Counts breaks, so each one shows a different tip; kept across restarts.
+    @Published private(set) var breakCount: Int { didSet { save(breakCount, "count") } }
+    /// Breaks taken and skipped today.
+    @Published private(set) var stats = BreakStats()
 
     private var schedule: BreakSchedule
     private var timer: Timer?
     private var started = false
     /// Screen locked or displays asleep: nobody is looking, so it counts as rest.
     private var screenUnavailable = false
-    private let overlay = BreakOverlay()
+    private var lastTick = Date()
+    private lazy var overlay = BreakOverlay { [weak self] in self?.endBreakEarly() }
 
     private init() {
         let d = UserDefaults.standard
@@ -50,9 +55,13 @@ public final class EyeBreaks: ObservableObject {
         deferForMedia = bool("defer_media", true)
         allowSkip = bool("allow_skip", true)
         chime = bool("chime", true)
+        showInMenuBar = bool("menu_bar", true)
         compact = bool("compact", false)
+        breakCount = max(0, d.integer(forKey: Self.prefix + "count"))
         schedule = BreakSchedule(interval: 0, breakLength: 0, headsUpLead: 0, now: Date())
         rebuild()
+        let pausedUntil = Date(timeIntervalSince1970: d.double(forKey: Self.prefix + "paused_until"))
+        if pausedUntil > Date() { schedule.pause(until: pausedUntil, now: Date()) }
     }
 
     // MARK: Lifecycle
@@ -80,6 +89,7 @@ public final class EyeBreaks: ObservableObject {
 
     public func takeBreakNow() {
         guard enabled else { return }
+        if isPaused { resumeFromPause() } // asking for a break ends the pause
         schedule.startBreak(now: Date())
         tick()
     }
@@ -89,11 +99,45 @@ public final class EyeBreaks: ObservableObject {
 
     public func postpone(minutes: Int) { reschedule(after: TimeInterval(minutes * 60)) }
 
+    /// No breaks for the next `hours` hours.
+    public func pause(hours: Int) { pause(until: Date().addingTimeInterval(TimeInterval(hours * 3600))) }
+
+    /// No breaks for the rest of today.
+    public func pauseUntilTomorrow() {
+        let today = Calendar.current.startOfDay(for: Date())
+        pause(until: Calendar.current.date(byAdding: .day, value: 1, to: today) ?? Date().addingTimeInterval(86400))
+    }
+
+    /// Ends a pause; a full interval is counted from now.
+    public func resumeFromPause() {
+        guard enabled else { return }
+        schedule.resume(now: Date())
+        save(0.0, "paused_until")
+        refresh()
+    }
+
+    public var isPaused: Bool { if case .paused = phase { return true } else { return false } }
+
+    private func pause(until: Date) {
+        guard enabled else { return }
+        if isOnBreak { stats.record(taken: false) }
+        schedule.pause(until: until, now: Date())
+        save(until.timeIntervalSince1970, "paused_until")
+        refresh()
+    }
+
+    /// The curtain's emergency exit: works even when skipping is turned off.
+    private func endBreakEarly() { reschedule(after: schedule.interval) }
+
     private func reschedule(after delay: TimeInterval) {
         guard enabled else { return }
+        if isOnBreak { stats.record(taken: false) }
         schedule.postpone(now: Date(), by: delay)
-        show(schedule.advance(now: Date(), idle: 0, busy: false))
+        refresh()
     }
+
+    /// Shows where the schedule stands right after an action, without waiting for the next tick.
+    private func refresh() { show(schedule.advance(now: Date(), idle: 0, busy: false)) }
 
     // MARK: Timer
 
@@ -117,31 +161,47 @@ public final class EyeBreaks: ObservableObject {
     }
 
     private func rebuild() {
+        let pausedUntil = schedule.pausedUntil
         schedule = BreakSchedule(interval: TimeInterval(intervalMinutes * 60), breakLength: TimeInterval(breakSeconds),
                                  headsUpLead: headsUp ? Self.headsUpSeconds : 0, now: Date())
+        if let pausedUntil { schedule.pause(until: pausedUntil, now: Date()) }
     }
 
     private func tick() {
         let anyInput = CGEventType(rawValue: ~0)!
         let idle = screenUnavailable ? .infinity
             : CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
-        let wasOnBreak = isOnBreak
-        show(schedule.advance(now: Date(), idle: idle,
-                              busy: deferForMedia && MediaActivity.isAnotherAppKeepingDisplayOn()))
+        let wasOnBreak = isOnBreak, now = Date()
+        // A late tick means the Mac slept: the break did not really run, so it ends without a word.
+        let uninterrupted = !screenUnavailable && abs(now.timeIntervalSince(lastTick)) < 5
+        lastTick = now
+        if stats.day != Calendar.current.startOfDay(for: now) { stats.rollOver(now: now) }
+        show(schedule.advance(now: now, idle: idle,
+                              busy: deferForMedia && MediaActivity.isBusy(),
+                              watching: !screenUnavailable && MediaActivity.isAnotherAppKeepingDisplayOn()))
+        guard wasOnBreak, !isOnBreak, uninterrupted else { return }
+        stats.record(taken: true, now: now)
         // The break ran its full length: eyes are off the screen, so say it is over out loud.
-        if wasOnBreak, !isOnBreak, chime { NSSound(named: "Glass")?.play() }
+        if chime { NSSound(named: "Glass")?.play() }
     }
 
     private var isOnBreak: Bool { if case .onBreak = phase { return true } else { return false } }
 
     private func show(_ next: BreakSchedule.Phase) {
         if case .onBreak = next, !isOnBreak { breakCount += 1 }
-        phase = next
+        // While working only the minute is on show: publish when it changes, not every second.
+        if !Self.looksTheSame(phase, next) { phase = next }
         switch next {
-        case .onBreak: overlay.showBreak(compact: compact)
+        // A break that gave up waiting for a call never covers the screen.
+        case .onBreak: overlay.showBreak(compact: compact || schedule.breakIsGentle)
         case .headsUp: overlay.showNotice()
-        case .working, .deferred: overlay.hide()
+        case .working, .deferred, .paused: overlay.hide()
         }
+    }
+
+    private static func looksTheSame(_ old: BreakSchedule.Phase?, _ new: BreakSchedule.Phase) -> Bool {
+        if case let .working(a)? = old, case let .working(b) = new { return (a / 60).rounded(.up) == (b / 60).rounded(.up) }
+        return old == new
     }
 
     // MARK: Persistence

@@ -80,10 +80,14 @@ public enum RecoveryPackageBuilder {
 
             1. Hold the power button until "Loading startup options" appears, then choose Options
                to start macOS Recovery.
-            2. Open Utilities > Terminal.
-            3. Your normal disk is mounted under /Volumes/Macintosh HD (the name may differ).
-               List it with:  ls /Volumes
-            4. Run ONE of the following, replacing "Macintosh HD" with your disk's name:
+            2. The override file and this folder are both on the DATA volume, not the system
+               volume. If FileVault is on, unlock it first: open Disk Utility, select the volume
+               named "Data" (or "Macintosh HD - Data"), click Mount and enter your password.
+               Then quit Disk Utility.
+            3. Open Utilities > Terminal and find the Data volume's name:
+                   ls /Volumes
+            4. Run ONE of the following. Replace "Data" with the name from step 3\(
+                entry?.existedBefore == true ? ", and <you> with your user name" : ""):
 
         \(recoveryTerminalCommands(manifest: manifest))
 
@@ -105,15 +109,20 @@ public enum RecoveryPackageBuilder {
 
     /// Commands for the Recovery Terminal, with the volume prefix spelled out.
     ///
+    /// The prefix is the **Data** volume. `/Library` and `/Users` both live there; the volume named
+    /// after the disk ("Macintosh HD") is the sealed, read-only system volume and has neither the
+    /// override nor the backup on it — the commands used to point at it and could not have worked.
+    ///
     /// Written as literal text with fixed paths from the manifest. Nothing here is built from user
     /// input, and no command removes a directory recursively.
     static func recoveryTerminalCommands(manifest: BackupManifest) -> String {
         guard let entry = manifest.entries.first else { return "        (nothing to undo)" }
-        let target = "/Volumes/Macintosh HD\(manifest.overrideRoot)/\(entry.relativePath)"
+        let volume = "/Volumes/Data"
+        let target = "\(volume)\(manifest.overrideRoot)/\(entry.relativePath)"
         if entry.existedBefore {
             return """
-                    # Put the original file back:
-                    cp "<this folder>/backup/\(entry.relativePath)" "\(target)"
+                    # Put the original file back (this folder is normally in your Downloads):
+                    cp "\(volume)/Users/<you>/Downloads/<this folder>/backup/\(entry.relativePath)" "\(target)"
             """
         }
         return """

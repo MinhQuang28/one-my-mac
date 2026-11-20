@@ -26,8 +26,64 @@ enum WindowLayout {
             let w = min(current.width, visible.width), h = min(current.height, visible.height)
             return CGRect(x: visible.minX + (visible.width - w) / 2, y: visible.minY + (visible.height - h) / 2,
                           width: w, height: h)
+        case .leftThird, .centerThird, .rightThird, .leftTwoThirds, .rightTwoThirds:
+            // The centre third takes the rounding remainder, so the three tile without gaps.
+            let third = floor(visible.width / 3)
+            let (x, w): (CGFloat, CGFloat)
+            switch action {
+            case .leftThird: (x, w) = (visible.minX, third)
+            case .centerThird: (x, w) = (visible.minX + third, visible.width - 2 * third)
+            case .rightThird: (x, w) = (visible.maxX - third, third)
+            case .leftTwoThirds: (x, w) = (visible.minX, visible.width - third)
+            default: (x, w) = (visible.minX + third, visible.width - third)
+            }
+            return CGRect(x: x, y: visible.minY, width: w, height: visible.height)
+        case .almostMaximize:
+            let w = floor(visible.width * almostMaximizeShare), h = floor(visible.height * almostMaximizeShare)
+            return CGRect(x: visible.minX + floor((visible.width - w) / 2), y: visible.minY + floor((visible.height - h) / 2),
+                          width: w, height: h)
         case .restore, .nextDisplay, .previousDisplay: return current
         }
+    }
+
+    /// Share of the usable area an almost-maximised window takes on each axis.
+    static let almostMaximizeShare: CGFloat = 0.9
+
+    /// The sizes a repeated half walks through: 1/2 → 2/3 → 1/3 → 1/2.
+    private static func cycle(for action: WindowAction) -> [WindowAction]? {
+        switch action {
+        case .leftHalf: return [.leftHalf, .leftTwoThirds, .leftThird]
+        case .rightHalf: return [.rightHalf, .rightTwoThirds, .rightThird]
+        default: return nil
+        }
+    }
+
+    /// Like `frame(for:in:current:)`, but a left or right half pressed again while the window already
+    /// sits at one of the cycle's frames moves on to the next size.
+    static func cycledFrame(for action: WindowAction, in visible: CGRect, current: CGRect) -> CGRect {
+        guard let steps = cycle(for: action) else { return frame(for: action, in: visible, current: current) }
+        let frames = steps.map { frame(for: $0, in: visible, current: current) }
+        guard let at = frames.firstIndex(where: { matches($0, current, slack: cycleSlack) }) else { return frames[0] }
+        return frames[(at + 1) % frames.count]
+    }
+
+    /// How far a window may be from a cycle frame and still count as sitting at it.
+    static let cycleSlack: CGFloat = 6
+
+    static func matches(_ a: CGRect, _ b: CGRect, slack: CGFloat) -> Bool {
+        abs(a.minX - b.minX) <= slack && abs(a.minY - b.minY) <= slack
+            && abs(a.width - b.width) <= slack && abs(a.height - b.height) <= slack
+    }
+
+    /// Where to slide a window that came out larger than asked (an app enforcing a minimum size, or
+    /// refusing to resize) so it does not hang off the display. Nil when it already fits. A window
+    /// larger than the area keeps its top-left corner on screen, where the title bar is.
+    static func originKeepingOnDisplay(_ frame: CGRect, in area: CGRect) -> CGPoint? {
+        guard isValid(frame), isValid(area) else { return nil }
+        let x = max(area.minX, min(frame.minX, area.maxX - frame.width))
+        let y = max(area.minY, min(frame.minY, area.maxY - frame.height))
+        guard abs(x - frame.minX) > 1 || abs(y - frame.minY) > 1 else { return nil }
+        return CGPoint(x: x, y: y)
     }
 
     static func isValid(_ rect: CGRect) -> Bool {

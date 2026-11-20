@@ -46,12 +46,20 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
     <key>CFBundleVersion</key><string>${VERSION}.${BUILD_NUMBER}</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSUIElement</key><true/>
-    <key>NSDownloadsFolderUsageDescription</key><string>OneMac lưu gói khôi phục HiDPI và báo cáo chẩn đoán vào thư mục Tải về.</string>
-    <key>NSAppleEventsUsageDescription</key><string>OneMac nhờ System Events khởi động lại máy để áp dụng cấu hình HiDPI, và chạy lệnh cài helper quạt với quyền quản trị.</string>
+    <key>NSDownloadsFolderUsageDescription</key><string>OneMac saves HiDPI recovery packages and diagnostics reports to the Downloads folder.</string>
+    <key>NSAppleEventsUsageDescription</key><string>OneMac asks System Events to restart the Mac to apply a HiDPI configuration, and runs the fan helper installer with administrator rights.</string>
     <key>NSHumanReadableCopyright</key><string>OneMac · PolyForm Noncommercial 1.0.0</string>
 </dict>
 </plist>
 PLIST
+
+# The permission prompts in Vietnamese for a Vietnamese system; Info.plist carries the English ones.
+mkdir -p "$OUT/Contents/Resources/en.lproj" "$OUT/Contents/Resources/vi.lproj"
+: > "$OUT/Contents/Resources/en.lproj/InfoPlist.strings"
+cat > "$OUT/Contents/Resources/vi.lproj/InfoPlist.strings" <<'STRINGS'
+"NSDownloadsFolderUsageDescription" = "OneMac lưu gói khôi phục HiDPI và báo cáo chẩn đoán vào thư mục Tải về.";
+"NSAppleEventsUsageDescription" = "OneMac nhờ System Events khởi động lại máy để áp dụng cấu hình HiDPI, và chạy lệnh cài helper quạt với quyền quản trị.";
+STRINGS
 
 ENTITLEMENTS="build/${APP_NAME}.entitlements"
 cat > "$ENTITLEMENTS" <<PLIST

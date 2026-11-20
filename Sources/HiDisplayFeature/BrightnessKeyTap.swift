@@ -30,6 +30,8 @@ final class BrightnessKeyTap {
     /// Called with the signed step to apply and whether the "all displays" modifier was held.
     /// Returns true if an external display was adjusted, which is what decides consumption.
     var onBrightnessKey: ((Float, Bool) -> Bool)?
+    /// Called after the tap removed itself because Accessibility was revoked while it was running.
+    var onTrustLost: (() -> Void)?
 
     static var isAccessibilityTrusted: Bool { AXIsProcessTrusted() }
 
@@ -95,8 +97,24 @@ final class BrightnessKeyTap {
 
     /// The system disables a tap that takes too long to respond. Re-enabling is the documented recovery,
     /// and without it the keys silently stop working until the app restarts.
+    ///
+    /// Unless the permission is gone. A tap whose process is no longer trusted cannot be revived by
+    /// re-enabling it, and an active (`.defaultTap`) tap left installed in that state is the known
+    /// way to stall the events it filters — here every media, volume and brightness key — for the
+    /// whole session. So it is removed instead, and the owner is told to wait for the permission.
     fileprivate func reenable(after eventType: CGEventType) {
         guard let tap else { return }
+        guard Self.isAccessibilityTrusted else {
+            Log.app.notice("brightness key tap disabled and Accessibility is no longer granted; removing it")
+            // Not from inside the tap's own callback: tearing the port down there invalidates the
+            // very source that is being serviced.
+            Task { @MainActor [weak self] in
+                guard let self, !Self.isAccessibilityTrusted else { return }
+                self.stop()
+                self.onTrustLost?()
+            }
+            return
+        }
         // The two disable reasons look identical from outside but mean different things in a support
         // log: a timeout is this app being slow, user-input disabling accompanies permission and
         // secure-input changes.

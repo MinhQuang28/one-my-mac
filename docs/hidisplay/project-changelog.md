@@ -2,6 +2,41 @@
 
 Newest first. Versions are the value of `AppModel.version`; tags are `v<version>`.
 
+## Unreleased
+
+### Fixed
+- Two monitors of one model reporting the same non-zero (placeholder) serial no longer share a
+  profile key; they are keyed by port and flagged for confirmation. Diagnostics export no longer
+  traps on a repeated key.
+- **Export Only** stages the backup, so the package's `restore.command` can actually restore.
+- A brightness key or **Sync** during a display's first probe no longer saves a value computed from
+  the 100% default. Keys for Apple's own external displays are left to macOS.
+- **This is a separate display** carries the saved profile to the pinned key, probes it, and clears
+  the notice.
+- Brightness keys: the Accessibility state is watched from launch and while the page is open; a
+  revoked permission removes the tap instead of re-enabling it.
+- The HiDPI install no longer blocks the main thread during the password prompt. A failed install
+  that changed nothing leaves no recovery folder behind, script failures say which step failed, and
+  a file that appeared after planning is a re-plan, not a silent overwrite.
+- DDC writes that keep failing get one fresh transport, then are reported so the display re-probes
+  instead of moving a slider that does nothing.
+- Gamma dimming is re-applied only to the monitor it was applied to, and resetting one display puts
+  back its original ramp. The shade now covers other apps' full-screen Spaces.
+- Recovery instructions point at the Data volume and mention unlocking FileVault.
+- Screens are re-probed when the login session becomes active again (fast user switching); a saved
+  value within one DDC step of the monitor's is not rewritten.
+
+### Added
+- **Restore Previous… / Remove Override…** on the HiDPI page, backed by the app's own copy of each
+  recovery package in Application Support.
+- Saved display settings can be exported, imported, reset, and forgotten per display (Display page
+  and Display Diagnostics).
+- **Retry** and **Use Software Dimming** beside "Waiting for DDC…".
+
+### Removed
+- The standalone HiDisplay window, menu and General page, unreachable since the app became part of
+  OneMac.
+
 ## 0.8.0 — 2026-10-15
 
 ### Changed

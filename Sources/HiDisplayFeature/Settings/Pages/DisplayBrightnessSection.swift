@@ -20,15 +20,12 @@ struct DisplayBrightnessSection: View {
             // The same slider as the panel's, so brightness can be set from here while comparing
             // controllers, without closing the window to reach the panel.
             SettingsStack(tr("Brightness", "Độ sáng"), value: "\(Int((brightness * 100).rounded()))%") {
-                Slider(
+                CapsuleSlider(
                     value: Binding(
                         get: { Double(brightness) },
                         set: { model.setBrightness(Float($0), for: display) }),
-                    in: 0...1
-                ) {
-                    Text(tr("Brightness", "Độ sáng"))
-                }
-                .labelsHidden()
+                    icon: "sun.max.fill",
+                    label: tr("Brightness", "Độ sáng"))
                 .disabled(model.brightness.controller(for: display.id) == nil)
             }
 
@@ -59,6 +56,23 @@ struct DisplayBrightnessSection: View {
                     : nil
             ) {
                 phaseLabel.font(.system(size: FS.body))
+            }
+
+            // A held display otherwise waits for a replug, a wake or a brightness change. On a desk
+            // that never sleeps that can be hours, so both ways out are offered here.
+            if phase == .heldForDDC {
+                SettingsRow(
+                    tr("Still waiting?", "Vẫn đang chờ?"),
+                    detail: tr("Check the monitor again, or dim it in software until DDC answers.",
+                               "Dò lại màn hình, hoặc làm tối bằng phần mềm cho tới khi DDC phản hồi.")
+                ) {
+                    HStack {
+                        Button(tr("Retry", "Thử lại")) { model.retryBrightnessProbe(for: display) }
+                        Button(tr("Use Software Dimming", "Dùng làm tối phần mềm")) {
+                            model.useSoftwareDimmingNow(for: display)
+                        }
+                    }
+                }
             }
 
             if let warning = model.brightness.warnings[display.id] {

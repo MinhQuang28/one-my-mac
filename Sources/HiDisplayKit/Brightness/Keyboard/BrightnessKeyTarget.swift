@@ -73,6 +73,39 @@ public enum BrightnessKeyResolver {
         }
     }
 
+    /// What a key press should do about one targeted display.
+    public enum KeyHandling: Equatable, Sendable {
+        /// The app changes this display's brightness.
+        case adjust
+        /// macOS owns this display's brightness; the event has to reach it.
+        case leaveToSystem
+        /// The app will drive this display but does not know how yet. The press is dropped: acting
+        /// on it would save a value computed from a default, and passing it on would make macOS
+        /// dim a *different* screen.
+        case wait
+        /// Nothing can change this display's brightness.
+        case ignore
+    }
+
+    /// Apple's EDID manufacturer ID ("APP").
+    public static let appleVendorID: UInt32 = 0x0610
+
+    /// Decides how a brightness key applies to one display.
+    ///
+    /// macOS already drives its own panels — the built-in one, and Apple's external displays
+    /// (Studio Display, Pro Display XDR, the LG UltraFines sold as Apple's) — from these keys, with
+    /// real backlight control and its own HUD. Those displays have no DDC, so the best this app
+    /// could do for them is a gamma ramp; consuming the key for that would trade hardware
+    /// brightness for software dimming. They are left to the system unless DDC actually answered.
+    public static func handling(
+        for display: DisplayDevice, controller: BrightnessControllerKind?, phase: BrightnessPhase
+    ) -> KeyHandling {
+        if display.isBuiltIn { return .leaveToSystem }
+        if display.identity.vendorID == appleVendorID, controller != .ddc { return .leaveToSystem }
+        if controller != nil { return .adjust }
+        return phase == .probing ? .wait : .ignore
+    }
+
     /// Applies a step to a current value, clamped.
     public static func adjusted(_ current: Float, by delta: Float) -> Float {
         min(max(current + delta, 0), 1)

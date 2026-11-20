@@ -25,6 +25,9 @@ struct OneMacApp: App {
         }
         .defaultSize(width: 860, height: 620)
         .windowResizability(.contentMinSize)
+        // A menu-bar app: the settings window opens on request only, never at login or by restoration.
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
     }
 }
 
@@ -47,11 +50,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HardwareMonitor.shared.start()
         SystemUsageMonitor.shared.start()
         FanController.shared.start()
-        AccessibilityRecovery.clearStaleGrantIfNeeded()
-        MouseModule.start()
-        WindowSnapping.shared.start()
         EyeBreaks.shared.start()
-        Task { await HiDisplayModule.start() }
+        // Everything that may ask for Accessibility waits for the stale grants to be reset first.
+        AccessibilityRecovery.clearStaleGrants {
+            MouseModule.start()
+            WindowSnapping.shared.start()
+            Task { await HiDisplayModule.start() }
+        }
     }
 
     /// Fans back to System, mouse config flushed, display dimming cleared — all before exit.

@@ -6,6 +6,7 @@ import SwiftUI
 struct DiagnosticsPage: View {
 
     @EnvironmentObject private var model: AppModel
+    @State private var confirmingReset = false
 
     var body: some View {
         SettingsPage(
@@ -48,6 +49,8 @@ struct DiagnosticsPage: View {
                 }
             }
 
+            savedSettingsSection
+
             SettingsSection(
                 tr("Private API status", "Trạng thái API riêng"),
                 footer: tr("Not part of the public macOS SDK, so they are looked up at runtime. If a "
@@ -67,6 +70,67 @@ struct DiagnosticsPage: View {
                         reason: DisplayServicesShim.shared.unavailableReason)
                 }
             }
+        }
+    }
+
+    /// What the app remembers per display, and the ways to move or clear it.
+    private var savedSettingsSection: some View {
+        SettingsSection(
+            tr("Saved display settings", "Thiết lập màn hình đã lưu"),
+            footer: tr("Brightness, controller choice and identity confirmations, per display. A "
+                        + "display identified by its port gets a new entry when it changes port; the "
+                        + "old ones collect here until forgotten.",
+                       "Độ sáng, lựa chọn bộ điều khiển và xác nhận danh tính của từng màn hình. Màn "
+                        + "hình nhận diện theo cổng sẽ có mục mới khi đổi cổng; các mục cũ nằm lại ở "
+                        + "đây cho tới khi được quên.")
+        ) {
+            SettingsRow(
+                tr("Backup", "Sao lưu"),
+                detail: tr("Importing replaces everything currently saved.",
+                           "Nhập sẽ thay thế toàn bộ thiết lập đang lưu.")
+            ) {
+                HStack {
+                    Button(tr("Export…", "Xuất…")) { model.exportProfiles() }
+                    Button(tr("Import…", "Nhập…")) { model.importProfiles() }
+                }
+            }
+            ForEach(model.disconnectedProfiles) { profile in
+                SettingsRow(
+                    profile.displayName.isEmpty ? profile.displayKey : profile.displayName,
+                    detail: tr("Not connected · \(profile.displayKey)",
+                               "Chưa kết nối · \(profile.displayKey)")
+                ) {
+                    Button(tr("Forget", "Quên")) { model.forgetProfile(key: profile.displayKey) }
+                }
+            }
+            SettingsRow(
+                tr("Reset all", "Đặt lại tất cả"),
+                detail: tr("Forgets every display, connected or not.",
+                           "Quên mọi màn hình, dù đang kết nối hay không.")
+            ) {
+                Button(tr("Reset…", "Đặt lại…"), role: .destructive) { confirmingReset = true }
+            }
+            if let message = model.profileMessage {
+                Label(message, systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.system(size: FS.body))
+            }
+            if let error = model.profileError {
+                Label(error, systemImage: "xmark.octagon.fill")
+                    .foregroundStyle(.red)
+                    .font(.system(size: FS.body))
+            }
+        }
+        .alert(tr("Reset all saved display settings?", "Đặt lại mọi thiết lập màn hình đã lưu?"),
+               isPresented: $confirmingReset) {
+            Button(tr("Reset", "Đặt lại"), role: .destructive) { model.resetAllProfiles() }
+            Button(tr("Cancel", "Hủy"), role: .cancel) {}
+        } message: {
+            Text(tr("Every display goes back to default brightness and automatic controller, and "
+                        + "identity confirmations are cleared. HiDPI overrides in /Library/Displays "
+                        + "are not touched.",
+                    "Mọi màn hình trở về độ sáng mặc định và bộ điều khiển tự động, các xác nhận danh "
+                        + "tính bị xóa. Override HiDPI trong /Library/Displays không bị đụng tới."))
         }
     }
 

@@ -30,6 +30,8 @@ final class AppModel: ObservableObject {
     // export under the Resolution picker and a failed resolution change on the Diagnostics page.
     /// The last resolution change that failed or could not be reverted. Shown with the picker.
     @Published var modeChangeError: String?
+    /// True while a resolution change, or its keep/revert dialog, is in flight.
+    @Published private(set) var isChangingMode = false
     /// The last diagnostics export that failed. Shown on the Diagnostics page.
     @Published var diagnosticsError: String?
     /// A log-out or restart request that macOS refused. Shown where the request was made.
@@ -81,10 +83,6 @@ final class AppModel: ObservableObject {
     @Published var brightnessKeyTarget: BrightnessKeyTarget = .displayUnderMouse
     /// Mirrors the Accessibility permission so Settings can react without polling from the view.
     @Published var isAccessibilityTrusted = BrightnessKeyTap.isAccessibilityTrusted
-    /// Login-item state, read from the system rather than stored — the user can change it in System
-    /// Settings at any time, so a cached copy would go stale and lie to them.
-    @Published var loginItemState: LoginItem.State = .disabled
-
     private let keyTap = BrightnessKeyTap()
     private let osd = BrightnessOSD()
     private var permissionWatch: Task<Void, Never>?
@@ -98,7 +96,12 @@ final class AppModel: ObservableObject {
 
     private var cancellables: Set<AnyCancellable> = []
     /// Cached so a slider change does not have to await the actor just to know the saved value.
-    private var savedBrightness: [String: Float] = [:]
+    var savedBrightness: [String: Float] = [:]
+    /// Saved settings for displays, connected or not, for the list in Settings. See
+    /// `AppModel+Profiles.swift`.
+    @Published var savedProfiles: [DisplayProfile] = []
+    @Published var profileMessage: String?
+    @Published var profileError: String?
 
     init() {
         // SwiftUI does not propagate changes through a nested ObservableObject: views observe
@@ -143,6 +146,12 @@ final class AppModel: ObservableObject {
         keyTap.onBrightnessKey = { [weak self] delta, allDisplays in
             self?.handleBrightnessKey(delta: delta, forceAllDisplays: allDisplays) ?? false
         }
+        keyTap.onTrustLost = { [weak self] in
+            guard let self else { return }
+            self.isAccessibilityTrusted = false
+            // Still wanted: pick the tap back up if the permission returns.
+            if self.brightnessKeysEnabled { self.startWatchingForPermission() }
+        }
 
         // A monitor sleep/wake cycle can replace a display's IOAVService without any display
         // reconfiguration event — the display never "disconnects", so discovery stays quiet while
@@ -152,6 +161,20 @@ final class AppModel: ObservableObject {
         // the user's brightness back on a monitor that woke on its own OSD value.
         NSWorkspace.shared.notificationCenter
             .publisher(for: NSWorkspace.screensDidWakeNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    await self.brightness.handleScreensDidWake(self.displays)
+                    await self.persistDDCFacts(for: self.displays)
+                }
+            }
+            .store(in: &cancellables)
+
+        // Fast user switching is the same hazard without the notification above: while another
+        // session owned the displays, monitors may have slept, been replugged or been driven to
+        // another brightness, and coming back produces neither a wake nor a reconfiguration.
+        NSWorkspace.shared.notificationCenter
+            .publisher(for: NSWorkspace.sessionDidBecomeActiveNotification)
             .sink { [weak self] _ in
                 Task { @MainActor in
                     guard let self else { return }
@@ -171,24 +194,30 @@ final class AppModel: ObservableObject {
         }
         // Re-arm the tap on launch, but only if permission is still granted — the user may have
         // revoked it since, and starting must not re-prompt on every launch.
-        if brightnessKeysEnabled, BrightnessKeyTap.isAccessibilityTrusted {
-            keyTap.start()
-        }
         isAccessibilityTrusted = BrightnessKeyTap.isAccessibilityTrusted
-        loginItemState = LoginItem.state
-        // Logged at launch because "does it actually open at login" is otherwise only observable by
-        // rebooting, and a support report needs the answer without one.
-        Log.app.notice("login item state: \(String(describing: self.loginItemState), privacy: .public)")
+        if brightnessKeysEnabled {
+            if isAccessibilityTrusted {
+                keyTap.start()
+            } else {
+                // Enabled but not trusted — revoked, or the app was re-signed and macOS dropped the
+                // grant. Watch without prompting, so granting it in System Settings is enough; this
+                // used to need the switch toggled off and on again.
+                startWatchingForPermission()
+            }
+        }
 
         await profiles.load()
         let assignments = await profiles.userAssignments()
-        savedBrightness = Dictionary(
-            uniqueKeysWithValues: await profiles.allProfiles().map { ($0.displayKey, $0.brightness) })
+        await reloadSavedProfiles()
 
         // Feed user identity pins in before the first enumeration, so a pinned display is recognised
         // on the very first pass rather than being briefly treated as new.
         discovery.setUserAssignments(assignments)
         discovery.start()
+
+        // A previous run that died mid soft-reconnect left a display switched off; it stays off
+        // until something turns it back on. Not awaited — launch must not wait on a link handshake.
+        Task { await DisplayReconnector.recoverStranded() }
 
         // The first configuration never produces a reconfiguration callback, so probe explicitly.
         await handleSettled(discovery.displays)
@@ -210,7 +239,7 @@ final class AppModel: ObservableObject {
         await profiles.flush()
     }
 
-    private func handleSettled(_ displays: [DisplayDevice]) async {
+    func handleSettled(_ displays: [DisplayDevice]) async {
         // Saved overrides and DDC facts go in *before* the probe pass, so the one probe per display
         // resolves against them. The old order — probe, then `setUserOverride` — re-probed every
         // display that had a saved controller (two full DDC cycles on the bus per settle), and the
@@ -225,12 +254,15 @@ final class AppModel: ObservableObject {
 
         await brightness.handleSettledDisplays(displays)
         await persistDDCFacts(for: displays)
+        // Only the list Settings shows. The brightness cache is deliberately not rebuilt here: a
+        // slider change still on its way to the store would be overwritten by the older value.
+        savedProfiles = await profiles.allProfiles()
     }
 
     /// Persists what the probes just learned. Settle and wake are the moments this is fresh and
     /// cheap; a frame shape that flips mid-session (an OSD toggle) is picked up at the next one,
     /// which is when it matters again.
-    private func persistDDCFacts(for displays: [DisplayDevice]) async {
+    func persistDDCFacts(for displays: [DisplayDevice]) async {
         for display in displays where brightness.controller(for: display.id) == .ddc {
             if let facts = await brightness.ddcFacts(for: display.id) {
                 await profiles.setDDCFacts(facts, for: display)
@@ -244,6 +276,10 @@ final class AppModel: ObservableObject {
     ///   entire purpose is re-asserting a value against hardware that may have drifted — Sync
     ///   Displays — because a DDC write can fail silently and state then lies.
     func setBrightness(_ value: Float, for display: DisplayDevice, force: Bool = false) {
+        // No controller yet means the first probe has not finished (or found nothing). The
+        // coordinator would drop the write, but the value would still be cached and saved here —
+        // and the probe, when it lands, "restores" that value over the one the user really had.
+        guard brightness.controller(for: display.id) != nil else { return }
         // A held brightness key repeats its clamped value at 0%/100%, and a slider can report the
         // same position twice; each duplicate still queued a DDC frame and re-armed the profile
         // save debounce. Skip only when both the saved value and the coordinator's requested value
@@ -276,7 +312,9 @@ final class AppModel: ObservableObject {
     func syncAllDisplays() {
         let managed = brightnessManagedDisplays
         let source = managed.first(where: \.isMain) ?? managed.first
-        guard let source else { return }
+        // A source that is still being probed has no value of its own yet; `brightness(for:)`
+        // answers 100% for it, and syncing that would blast every other monitor to full.
+        guard let source, brightness.states[source.id] != nil else { return }
         let value = brightness.brightness(for: source.id)
         for display in managed where display.id != source.id {
             // Forced: "sync" is the user's tool for re-asserting a value, including onto a monitor
@@ -302,25 +340,34 @@ final class AppModel: ObservableObject {
     }
 
     /// Confirms an ambiguous display as a distinct monitor, pinning its identity permanently.
+    ///
+    /// The pin renames the display's key, so everything keyed by the old one has to follow: the
+    /// saved profile moves, the brightness cache moves, and the display is probed under its new
+    /// key — discovery republishes synchronously here and fires no settle of its own, which used
+    /// to leave the pinned display on "Checking brightness control…" until the next replug.
     func pinIdentity(for display: DisplayDevice) {
+        // Already pinned: its key is the pin. Pinning again would only add a second assignment.
+        guard display.identity.userAssignedID == nil else { return }
         let uuid = UUID()
+        let oldKey = display.id
+        let newKey = "user-\(uuid.uuidString.lowercased())"
         Task {
-            await profiles.assignIdentity(uuid, toHeuristicKey: display.id)
-            let assignments = await profiles.userAssignments()
-            discovery.setUserAssignments(assignments)
+            await profiles.assignIdentity(uuid, toHeuristicKey: oldKey)
+            await profiles.moveProfile(from: oldKey, to: newKey)
+            await reloadSavedProfiles()
+            discovery.setUserAssignments(await profiles.userAssignments())
+            await handleSettled(discovery.displays)
         }
     }
 
-    // MARK: - Launch at login
-
-    func setLaunchAtLogin(_ enabled: Bool) {
-        loginItemState = LoginItem.set(enabled)
+    /// Probes a display again on request. For a display stuck on "Waiting for DDC…".
+    func retryBrightnessProbe(for display: DisplayDevice) {
+        Task { await brightness.retryProbe(for: display) }
     }
 
-    /// Re-reads the system's view. Called when Settings appears, because the user may have flipped the
-    /// switch in System Settings while the app was running.
-    func refreshLoginItemState() {
-        loginItemState = LoginItem.state
+    /// Stops waiting for DDC on a held display and dims it in software now.
+    func useSoftwareDimmingNow(for display: DisplayDevice) {
+        Task { await brightness.useSoftwareDimmingNow(for: display) }
     }
 
     // MARK: - Brightness keys
@@ -345,6 +392,24 @@ final class AppModel: ObservableObject {
     func setBrightnessKeyTarget(_ target: BrightnessKeyTarget) {
         brightnessKeyTarget = target
         UserDefaults.standard.set(target.rawValue, forKey: DefaultsKey.keyTarget)
+    }
+
+    /// Brings the published permission state and the tap in line with the system's current answer.
+    ///
+    /// macOS posts nothing when Accessibility is granted or revoked, so the page that shows the
+    /// state calls this while it is visible. That covers both directions: a grant made in System
+    /// Settings starts the tap, and a revocation removes it instead of leaving "Granted" on screen
+    /// over a tap that can no longer work.
+    func refreshAccessibilityState() {
+        let trusted = BrightnessKeyTap.isAccessibilityTrusted
+        if isAccessibilityTrusted != trusted { isAccessibilityTrusted = trusted }
+        guard brightnessKeysEnabled else { return }
+        if trusted {
+            if !keyTap.isRunning { keyTap.start() }
+        } else if keyTap.isRunning {
+            keyTap.stop()
+            startWatchingForPermission()
+        }
     }
 
     /// Polls once a second until Accessibility is granted, then starts the tap. A main-actor task
@@ -380,128 +445,66 @@ final class AppModel: ObservableObject {
             forceAllDisplays: forceAllDisplays)
         guard !targets.isEmpty else { return false }
 
-        for display in targets where !display.isBuiltIn {
-            let current = brightness.brightness(for: display.id)
-            let next = BrightnessKeyResolver.adjusted(current, by: delta)
-            setBrightness(next, for: display)
-            // Only for external displays: macOS draws its own HUD for the built-in panel, and two
-            // indicators side by side would look like a bug.
-            osd.show(value: next, display: display)
+        var adjusted = false
+        var systemMustSee = false
+        var waiting = false
+        for display in targets {
+            switch BrightnessKeyResolver.handling(
+                for: display, controller: brightness.controller(for: display.id),
+                phase: brightness.phase(for: display.id)) {
+            case .leaveToSystem:
+                systemMustSee = true
+            case .wait:
+                waiting = true
+            case .ignore:
+                break
+            case .adjust:
+                let current = brightness.brightness(for: display.id)
+                let next = BrightnessKeyResolver.adjusted(current, by: delta)
+                setBrightness(next, for: display)
+                // Only for displays this app drives: macOS draws its own HUD for the panels it
+                // owns, and two indicators side by side would look like a bug.
+                osd.show(value: next, display: display)
+                adjusted = true
+            }
         }
 
-        let touchedBuiltIn = targets.contains(where: \.isBuiltIn)
-        let touchedExternal = targets.contains(where: { !$0.isBuiltIn })
-        return touchedExternal && !touchedBuiltIn
+        // Consumed when the press was entirely this app's business — including a display whose
+        // first probe is still running, where passing the key on would dim the built-in panel
+        // instead of the screen the user meant.
+        return (adjusted || waiting) && !systemMustSee
     }
 
     // MARK: - Resolution
 
     /// Applies a display mode, then refreshes so the UI reflects whatever actually took effect —
     /// which may be the previous mode, if the change was reverted.
+    ///
+    /// The switch runs off the main thread, so a second request arriving while one is in flight
+    /// (or while its keep/revert dialog is up) is dropped rather than queued behind it.
     func setMode(_ mode: DisplayMode, for display: DisplayDevice) {
-        let outcome = ModeChangeCoordinator.change(to: mode, on: display)
-        switch outcome {
-        case .kept, .reverted:
-            modeChangeError = nil
-        case .failed(let message):
-            modeChangeError = tr("Could not change resolution: \(message)",
-                                 "Không đổi được độ phân giải: \(message)")
+        guard !isChangingMode else { return }
+        isChangingMode = true
+        Task {
+            let outcome = await ModeChangeCoordinator.change(to: mode, on: display)
+            isChangingMode = false
+            switch outcome {
+            case .kept, .reverted:
+                modeChangeError = nil
+            case .failed(let message):
+                modeChangeError = tr("Could not change resolution: \(message)",
+                                     "Không đổi được độ phân giải: \(message)")
+            }
+            refreshAfterModeChange()
         }
-        // A resolution change invalidates cached frames, and shade overlays are positioned from them.
-        // It also clears the gamma ramp, which `handleDisplaysChanged` puts back — the reconfiguration
-        // callback normally gets there first, but this path does not depend on that.
+    }
+
+    /// A resolution change invalidates cached frames, and shade overlays are positioned from them.
+    /// It also clears the gamma ramp, which `handleDisplaysChanged` puts back — the reconfiguration
+    /// callback normally gets there first, but this path does not depend on that.
+    func refreshAfterModeChange() {
         discovery.refreshNow()
         brightness.handleDisplaysChanged(displays)
-    }
-
-    // MARK: - HiDPI install
-
-    enum InstallOutcome {
-        case installed(recoveryPackage: URL, requiresLogout: Bool)
-        case cancelled
-        case failed(String)
-    }
-
-    /// The policy the app installs with. Merge, because that is what the UI promises: the tab is
-    /// titled "Resolutions to add", and the confirmation says existing entries are kept. `.replace`
-    /// here would make both of those false — it briefly did, and destroyed a 242-entry override
-    /// written by another tool. Removing modes is a different feature (the recovery package), not a
-    /// side effect of adding some. Export uses the same policy so both routes stage the same file.
-    static let installPolicy = OverrideInstaller.ExistingContentPolicy.merge
-
-    /// Works out what installing would change, writing nothing.
-    ///
-    /// Separate from `performInstall` so the UI can put the whole plan — the destination, the file
-    /// being replaced, what is discarded, the undo command — in front of the user *before* asking for
-    /// a password. A privileged write the user has not seen described is not a reviewable one.
-    func planInstall(
-        _ generated: GeneratedOverride, for display: DisplayDevice
-    ) throws -> InstallationPlan {
-        let installer = OverrideInstaller(
-            root: URL(fileURLWithPath: OverridePaths.systemOverrideRoot),
-            appVersion: Self.version)
-        return try installer.plan(generated: generated, display: display, policy: Self.installPolicy)
-    }
-
-    /// Backs up, installs and verifies a plan the user has already approved, prompting for
-    /// authorization once.
-    ///
-    /// The recovery package is created **before** the privileged write, not after: if the write goes
-    /// wrong, the way back has to already exist.
-    /// - Note: the bytes written come from `plan.payload`, not from any `GeneratedOverride` the caller
-    ///   still has to hand. Those two differ whenever an override is already installed, and writing
-    ///   the caller's copy is what silently discarded another tool's modes.
-    func performInstall(_ plan: InstallationPlan) -> InstallOutcome {
-        guard plan.isInstallable else {
-            return .failed(plan.validation.errors.map(\.message).joined(separator: "\n"))
-        }
-        do {
-            let downloads = try FileManager.default.url(
-                for: .downloadsDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            let package = try RecoveryPackageBuilder.create(manifest: plan.manifest, in: downloads)
-
-            // Copy the file being replaced into the package while we can still read it. This throws
-            // if the file no longer matches the plan — the plan (and its merged payload) is then
-            // stale, and installing it would both lose the newer content and produce a recovery
-            // package whose own restore script rejects the backup.
-            let installer = OverrideInstaller(root: plan.root, appVersion: Self.version)
-            do {
-                try installer.stageBackups(for: plan.manifest, into: package.backupDirectory)
-            } catch InstallerError.manifestMismatch {
-                try? FileManager.default.removeItem(at: package.directory)
-                return .failed(tr("""
-                    The override file changed after this install was planned. Nothing was written. \
-                    Click Install again to re-read the file and see an updated plan.
-                    """, """
-                    Tệp override đã thay đổi sau khi lập kế hoạch cài đặt. Chưa ghi gì cả. \
-                    Bấm Cài đặt lần nữa để đọc lại tệp và xem kế hoạch mới.
-                    """))
-            }
-
-            do {
-                try PrivilegedInstaller.install(plan: plan, payload: plan.payload)
-            } catch PrivilegedInstaller.InstallError.cancelled {
-                // Cancelling happens before anything runs as root, so nothing on the system changed.
-                // Leaving a recovery package behind would contradict the message the UI then shows —
-                // and a recovery folder for a change that never happened is only confusing later.
-                try? FileManager.default.removeItem(at: package.directory)
-                return .cancelled
-            }
-            return .installed(recoveryPackage: package.directory, requiresLogout: plan.requiresLogout)
-        } catch {
-            return .failed(error.localizedDescription)
-        }
-    }
-
-    /// Ends the session so the new override takes effect. Profiles are flushed first — a logout gives
-    /// the app no more warning than a restart does — and *awaited*: firing the logout Apple event in
-    /// the same breath as an unawaited flush was a race the flush usually lost.
-    func endSession(_ kind: PrivilegedInstaller.SessionEnd) {
-        Task {
-            await profiles.flush()
-            sessionEndError = nil
-            do { try PrivilegedInstaller.endSession(kind) } catch { sessionEndError = error.localizedDescription }
-        }
     }
 
     // MARK: - Diagnostics
@@ -514,10 +517,13 @@ final class AppModel: ObservableObject {
             availability: brightness.availability,
             probeDetails: brightness.probeDetails,
             warnings: brightness.warnings,
+            // Tolerant of a repeated key: a report is exactly what gets exported when identity
+            // has gone wrong, and trapping on the duplicate would lose the evidence.
             chosenControllers: Dictionary(
-                uniqueKeysWithValues: displays.compactMap { display in
+                displays.compactMap { display in
                     brightness.controller(for: display.id).map { (display.id, $0) }
-                }),
+                },
+                uniquingKeysWith: { first, _ in first }),
             appVersion: Self.version)
 
         do {

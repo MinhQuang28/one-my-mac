@@ -21,8 +21,8 @@ public enum DisplayKeyTier: Int, Codable, Sendable, CaseIterable {
             return "Identified by vendor and product only — this monitor reports no serial number."
         case .location:
             return "Identified by the port it is plugged into, because two identical monitors are "
-                + "attached and neither reports a serial number. Moving it to another port will "
-                + "look like a new display."
+                + "attached and their serial numbers do not tell them apart. Moving it to another port "
+                + "will look like a new display."
         }
     }
 }

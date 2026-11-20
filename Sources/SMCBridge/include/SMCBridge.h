@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/// Protocol version of the root fan helper, shared by the helper (which prints it) and the app
+/// (which asks for a reinstall when the installed one is older). Bump on any helper change.
+#define OM_FAN_HELPER_VERSION 2
+
 /// A raw SMC value: 4-char type ("flt ", "ui8 ", "sp78"...), byte count and the bytes.
 typedef struct {
     char type[5];

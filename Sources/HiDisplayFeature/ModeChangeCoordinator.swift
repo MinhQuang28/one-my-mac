@@ -25,10 +25,12 @@ enum ModeChangeCoordinator {
         case failed(String)
     }
 
-    static func change(to mode: DisplayMode, on display: DisplayDevice) -> Outcome {
+    /// `async` because the switch itself runs off the main thread — completing a display
+    /// transaction blocks for seconds, and the UI must not hang for it.
+    static func change(to mode: DisplayMode, on display: DisplayDevice) async -> Outcome {
         let previous: DisplayMode
         do {
-            previous = try DisplayModeSwitcher.apply(mode, to: display.cgDisplayID)
+            previous = try await DisplayModeSwitcher.apply(mode, to: display.cgDisplayID)
         } catch DisplayModeSwitcher.SwitchError.sameMode {
             return .kept
         } catch {
@@ -41,7 +43,7 @@ enum ModeChangeCoordinator {
         }
 
         do {
-            try DisplayModeSwitcher.apply(previous, to: display.cgDisplayID)
+            try await DisplayModeSwitcher.apply(previous, to: display.cgDisplayID)
             Log.modes.notice("resolution change reverted")
             return .reverted
         } catch {

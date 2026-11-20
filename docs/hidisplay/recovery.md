@@ -32,7 +32,11 @@ Keep it until the override has survived a reconnect (or logout) and a sleep/wake
 
 ## Route 1 — the Mac boots normally
 
-Double-click `restore.command`, enter your password, then unplug the display and plug it back in.
+In the app: **Settings → HiDPI**, pick the display, and use **Restore Previous…** (or **Remove
+Override…** when nothing was there before). It is offered only while the file on disk is exactly what
+the app installed; it asks for your password once and verifies the result.
+
+Without the app: double-click `restore.command`, enter your password, then unplug the display and plug it back in.
 Logging out works too; a restart is not required.
 
 The script verifies the backup's SHA-256 against the manifest before restoring it, checks the target is
@@ -50,21 +54,27 @@ server that fails. Use Recovery.
 2. Choose **Options → Continue** to enter macOS Recovery.
 3. **Utilities → Terminal**.
 
-In the Terminal, the normal disk is mounted under `/Volumes`. Find its name:
+The override and the recovery package are both on the **Data** volume — `/Library` and `/Users` live
+there. The volume named after the disk (`Macintosh HD`) is the sealed, read-only system volume and has
+neither.
+
+4. If FileVault is on, unlock the Data volume first: **Utilities → Disk Utility**, select the volume
+   named `Data` (or `Macintosh HD - Data`), click **Mount**, enter your password, quit Disk Utility.
+5. In the Terminal, find the Data volume's name:
 
 ```sh
 ls /Volumes
 ```
 
-Then, replacing `Macintosh HD` with your disk's name:
+Then, replacing `Data` with that name and `<you>` with your user name:
 
 ```sh
 # If HiDisplay added a new file — delete it:
-rm "/Volumes/Macintosh HD/Library/Displays/Contents/Resources/Overrides/DisplayVendorID-XXXX/DisplayProductID-YYYY"
+rm "/Volumes/Data/Library/Displays/Contents/Resources/Overrides/DisplayVendorID-XXXX/DisplayProductID-YYYY"
 
 # If it replaced an existing file — put the original back from the recovery package:
-cp "/Volumes/Macintosh HD/Users/<you>/Downloads/HiDisplay-Recovery-.../backup/DisplayVendorID-XXXX/DisplayProductID-YYYY" \
-   "/Volumes/Macintosh HD/Library/Displays/Contents/Resources/Overrides/DisplayVendorID-XXXX/DisplayProductID-YYYY"
+cp "/Volumes/Data/Users/<you>/Downloads/HiDisplay-Recovery-.../backup/DisplayVendorID-XXXX/DisplayProductID-YYYY" \
+   "/Volumes/Data/Library/Displays/Contents/Resources/Overrides/DisplayVendorID-XXXX/DisplayProductID-YYYY"
 ```
 
 The exact paths are in `README.txt` and `manifest.json` inside the package — you do not have to work out
@@ -74,13 +84,18 @@ Restart.
 
 ### If the recovery package is gone
 
-Every override HiDisplay installs is one file under
-`/Library/Displays/Contents/Resources/Overrides`. Removing the whole vendor directory for the affected
-display returns macOS to its built-in behaviour:
+The app keeps its own copy of every package under
+`~/Library/Application Support/HiDisplay/Recovery/`, which is also what the **Restore Previous… /
+Remove Override…** button on the HiDPI page works from. From Recovery that is
+`/Volumes/Data/Users/<you>/Library/Application Support/HiDisplay/Recovery/`.
+
+Failing that: every override HiDisplay installs is one file under
+`/Library/Displays/Contents/Resources/Overrides`. Removing the file for the affected display returns
+macOS to its built-in behaviour:
 
 ```sh
-ls "/Volumes/Macintosh HD/Library/Displays/Contents/Resources/Overrides"
-rm "/Volumes/Macintosh HD/Library/Displays/Contents/Resources/Overrides/DisplayVendorID-XXXX/DisplayProductID-YYYY"
+ls "/Volumes/Data/Library/Displays/Contents/Resources/Overrides"
+rm "/Volumes/Data/Library/Displays/Contents/Resources/Overrides/DisplayVendorID-XXXX/DisplayProductID-YYYY"
 ```
 
 Nothing under `/Library/Displays` is required for macOS to boot. Note that other tools may have installed

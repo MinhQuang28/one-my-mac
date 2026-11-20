@@ -20,9 +20,11 @@ enum RemapAction: Codable, Equatable, Hashable, Sendable {
 
     /// Actions offered in the Settings picker.
     static var presets: [RemapAction] {
-        [.spaceLeft, .spaceRight, .missionControl, .appExpose, .launchpad,
-         .mediaKey(.volumeDown), .mediaKey(.volumeUp), .mediaKey(.mute),
-         .mediaKey(.playPause), .mediaKey(.previous), .mediaKey(.next)]
+        // Launchpad is gone from macOS 26 on; an existing mapping keeps working as a no-op there.
+        let launchpad: [RemapAction] = ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 26 ? [.launchpad] : []
+        return [.spaceLeft, .spaceRight, .missionControl, .appExpose] + launchpad
+            + [.mediaKey(.volumeDown), .mediaKey(.volumeUp), .mediaKey(.mute),
+               .mediaKey(.playPause), .mediaKey(.previous), .mediaKey(.next)]
     }
 
     /// Window actions offered in the Settings picker, in their own group.

@@ -61,17 +61,18 @@ final class WindowRestoreMemoryTests: XCTestCase {
     func testFrameBeforeTheFirstActionSurvivesLaterActionsAndIsTakenOnce() {
         var memory = WindowRestoreMemory<String>()
         memory.willArrange("w", from: original)
-        memory.didArrange("w", at: left)
+        memory.didArrange("w", target: left, at: left)
         memory.willArrange("w", from: left) // a second snap, from where OneMac left it
-        memory.didArrange("w", at: CGRect(x: 960, y: 0, width: 960, height: 1000))
-        XCTAssertEqual(memory.takeSavedFrame(for: "w"), original)
-        XCTAssertNil(memory.takeSavedFrame(for: "w"))
+        let right = CGRect(x: 960, y: 0, width: 960, height: 1000)
+        memory.didArrange("w", target: right, at: right)
+        XCTAssertEqual(memory.takeSavedFrame(for: "w", current: right), original)
+        XCTAssertNil(memory.takeSavedFrame(for: "w", current: right))
     }
 
     func testAManualMoveBecomesTheNewFrameToRestore() {
         var memory = WindowRestoreMemory<String>()
         memory.willArrange("w", from: original)
-        memory.didArrange("w", at: left)
+        memory.didArrange("w", target: left, at: left)
         let dragged = CGRect(x: 200, y: 150, width: 700, height: 500)
         memory.willArrange("w", from: dragged)
         XCTAssertEqual(memory.savedFrame(for: "w"), dragged)
@@ -96,11 +97,12 @@ final class WindowRestoreMemoryTests: XCTestCase {
 
 final class WindowShortcutTests: XCTestCase {
     func testDefaultsAreUniqueAndPrintLikeMacOS() {
-        let shortcuts = WindowAction.allCases.map(WindowShortcut.default(for:))
+        let shortcuts = WindowAction.allCases.compactMap(WindowShortcut.default(for:))
+        XCTAssertEqual(shortcuts.count, 13) // actions added later start unbound
         for (i, a) in shortcuts.enumerated() {
             for b in shortcuts[(i + 1)...] { XCTAssertNotEqual(a, b) }
             XCTAssertFalse(a.keyCaps.contains("?"))
         }
-        XCTAssertEqual(WindowShortcut.default(for: .nextDisplay).keyCaps, ["⌃", "⌥", "⌘", "→"])
+        XCTAssertEqual(WindowShortcut.default(for: .nextDisplay)?.keyCaps, ["⌃", "⌥", "⌘", "→"])
     }
 }

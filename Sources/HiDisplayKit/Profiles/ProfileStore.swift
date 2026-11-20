@@ -240,8 +240,35 @@ public actor ProfileStore {
         scheduleSave()
     }
 
+    /// Moves everything saved under one display key to another.
+    ///
+    /// Pinning an identity renames the display's key to `user-<uuid>`. Without this the pinned
+    /// display starts from an empty profile: its brightness, controller choice and DDC facts stay
+    /// behind under a key nothing will ever look up again. An existing profile at the destination
+    /// wins, because it is the one the user has been changing most recently.
+    public func moveProfile(from oldKey: String, to newKey: String) {
+        guard oldKey != newKey else { return }
+        if var profile = document.profiles.removeValue(forKey: oldKey),
+           document.profiles[newKey] == nil {
+            profile.displayKey = newKey
+            profile.updatedAt = Date()
+            document.profiles[newKey] = profile
+        }
+        for (id, var hiDPI) in document.hiDPIProfiles where hiDPI.displayKey == oldKey {
+            hiDPI.displayKey = newKey
+            document.hiDPIProfiles[id] = hiDPI
+        }
+        scheduleSave()
+    }
+
+    /// Forgets one display: its saved settings, its HiDPI profiles and any identity pin that
+    /// resolves to it. A connected display simply starts over from defaults.
     public func resetProfile(key: String) {
         document.profiles.removeValue(forKey: key)
+        document.hiDPIProfiles = document.hiDPIProfiles.filter { $0.value.displayKey != key }
+        document.userAssignments = document.userAssignments.filter {
+            "user-\($0.value.uuidString.lowercased())" != key
+        }
         scheduleSave()
     }
 

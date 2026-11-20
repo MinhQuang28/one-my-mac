@@ -1,3 +1,4 @@
+import EyeBreakKit
 import HardwareKit
 import HiDisplayFeature
 import MousseFeature
@@ -172,15 +173,19 @@ enum AppInfo {
 struct MenuBarLabel: View {
     @ObservedObject private var usage = SystemUsageMonitor.shared
     @ObservedObject private var monitor = HardwareMonitor.shared
+    @ObservedObject private var breaks = EyeBreaks.shared
 
     var body: some View {
-        if let text = usage.menuBarText(temperature: monitor.thermal.cpuAverage) {
+        // System stats first, then the eye-break countdown; either may be off.
+        let parts = [usage.menuBarText(temperature: monitor.thermal.cpuAverage), breaks.menuBarStatus]
+            .compactMap { $0 }
+        if parts.isEmpty {
+            Image(systemName: AppInfo.symbol)
+        } else {
             HStack(spacing: 4) {
                 Image(systemName: AppInfo.symbol)
-                Text(text).monospacedDigit()
+                Text(parts.joined(separator: " · ")).monospacedDigit()
             }
-        } else {
-            Image(systemName: AppInfo.symbol)
         }
     }
 }

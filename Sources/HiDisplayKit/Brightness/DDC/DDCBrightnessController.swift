@@ -45,6 +45,12 @@ public actor DDCBrightnessController: DDCControlling {
     }
 
     private var sessions: [String: Session] = [:]
+    /// Displays whose session was already rebuilt once because writes kept failing, and has not
+    /// landed a write since. A second run of failures on one of these is reported, not retried.
+    private var reboundAfterWriteFailure: Set<String> = []
+    /// Failed writes in a row before the transport is assumed stale. Two, so a single bus glitch
+    /// in the middle of a drag does not tear a working session down.
+    static let writeFailureThreshold = 2
     /// Facts persisted from a previous connection, keyed by display key. Consulted once, when a
     /// session is created; deliberately never cleared on invalidate, because surviving the
     /// invalidate/rebind cycle is the entire point.
@@ -178,9 +184,35 @@ public actor DDCBrightnessController: DDCControlling {
 
     /// Fire-and-forget by design: the queue coalesces and the UI has already moved. Awaiting the wire
     /// here would make a slider drag as slow as the monitor's I2C latency.
+    ///
+    /// Because nothing awaits the wire, a failed write is only visible afterwards: each call first
+    /// looks at how the previous writes fared. A run of failures gets one fresh transport — the
+    /// IOAVService can be replaced underneath a live session — and if writes still fail on that,
+    /// this throws so the coordinator re-probes and falls back instead of driving a dead bus.
     public func setBrightness(_ value: Float, display: DisplayDevice) async throws {
-        guard let session = session(for: display) else {
+        guard var session = session(for: display) else {
             throw DDCError.unsupported(reason: "no DDC transport for this display")
+        }
+        let key = display.id
+        let failures = await session.queue.consecutiveWriteFailures
+        if reboundAfterWriteFailure.contains(key) {
+            if failures >= 1 {
+                reboundAfterWriteFailure.remove(key)
+                await invalidate(key: key)
+                Log.ddcBrightness.notice(
+                    "\(key, privacy: .public): writes still failing on a fresh transport; reporting DDC as failed")
+                throw DDCError.unsupported(reason: "the display stopped accepting brightness commands")
+            }
+            if await session.queue.hasWrittenSuccessfully { reboundAfterWriteFailure.remove(key) }
+        } else if failures >= Self.writeFailureThreshold {
+            await invalidate(key: key)
+            guard let fresh = self.session(for: display) else {
+                throw DDCError.unsupported(reason: "no DDC transport for this display")
+            }
+            Log.ddcBrightness.notice(
+                "\(key, privacy: .public): \(failures) brightness writes failed in a row; retrying on a fresh transport")
+            reboundAfterWriteFailure.insert(key)
+            session = fresh
         }
         let raw = VCPCodec.rawValue(
             fromNormalized: value, minimum: session.range.minimum, maximum: session.range.maximum)
@@ -221,6 +253,7 @@ public actor DDCBrightnessController: DDCControlling {
         for key in sessions.keys where !liveKeys.contains(key) {
             await invalidate(key: key)
         }
+        reboundAfterWriteFailure.formIntersection(liveKeys)
     }
 
     // MARK: - Sessions

@@ -249,4 +249,46 @@ extension AppConfigTests {
         XCTAssertEqual(decoded.deviceProfiles[0].settings.scrollSpeed, 1.5, accuracy: 1e-9)
         XCTAssertEqual(decoded.deviceProfiles[0].settings.scrollMode, .smooth)
     }
+
+    // MARK: Modifier-wheel toggles
+
+    func testModifierWheelTogglesDefaultAndRoundTrip() throws {
+        // A config written before the toggles existed keeps today's behaviour.
+        let old = try JSONDecoder().decode(AppConfig.self, from: #"{"scrollLines":4}"#.data(using: .utf8)!)
+        XCTAssertTrue(old.zoomWithCommand)
+        XCTAssertFalse(old.passControlScroll)
+
+        var config = AppConfig()
+        config.zoomWithCommand = false
+        config.passControlScroll = true
+        let decoded = try roundTrip(config)
+        XCTAssertFalse(decoded.zoomWithCommand)
+        XCTAssertTrue(decoded.passControlScroll)
+    }
+
+    // MARK: Detecting what tolerant decoding left out
+
+    private func losesEntries(_ json: String) throws -> Bool {
+        let data = json.data(using: .utf8)!
+        return AppConfig.decodingLosesEntries(data, decoded: try JSONDecoder().decode(AppConfig.self, from: data))
+    }
+
+    func testIntactConfigLosesNothing() throws {
+        XCTAssertFalse(try losesEntries(String(data: try JSONEncoder().encode(AppConfig()), encoding: .utf8)!))
+        XCTAssertFalse(try losesEntries(#"{"scrollLines":4}"#), "missing lists are not a loss")
+        XCTAssertFalse(try losesEntries(#"{"mappings":[]}"#))
+    }
+
+    func testDroppedMappingIsALoss() throws {
+        XCTAssertTrue(try losesEntries(#"{"mappings":[{"buttonNumber":5,"action":{"warpDrive":{}}}]}"#))
+    }
+
+    func testDroppedDeviceProfileIsALoss() throws {
+        XCTAssertTrue(try losesEntries(#"{"deviceProfiles":[{"id":7}]}"#))
+    }
+
+    func testNonObjectOrWrongTypeListIsALoss() throws {
+        XCTAssertTrue(try losesEntries(#"[]"#))
+        XCTAssertTrue(try losesEntries(#"{"mappings":"none"}"#))
+    }
 }

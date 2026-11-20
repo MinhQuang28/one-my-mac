@@ -42,7 +42,10 @@ struct MouseGeneralPage: View {
                         icon: "keyboard") {
                 SettingsStatus(ok: InputMonitoringPermission.isTrusted,
                                text: InputMonitoringPermission.isTrusted ? tr("Granted", "Đã cấp") : tr("Not granted", "Chưa cấp"),
-                               actionTitle: tr("Grant…", "Cấp quyền…")) { InputMonitoringPermission.request() }
+                               actionTitle: tr("Grant…", "Cấp quyền…")) {
+                    // The system prompt only ever shows once; after that, open the pane.
+                    if !InputMonitoringPermission.request() { InputMonitoringPermission.openSettings() }
+                }
             }
         }
     }

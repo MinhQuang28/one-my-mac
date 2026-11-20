@@ -46,15 +46,16 @@ public struct ThermalFanCard: View {
             .disabled(fans.isBusy)
         if let fan = fans.fans.first {
             VStack(alignment: .leading, spacing: 2) {
-                Slider(value: Binding(get: { dragging ? sliderValue : currentFraction(fan) },
-                                      set: { sliderValue = $0 }),
-                       in: fan.minRPM / fan.maxRPM...1,
-                       onEditingChanged: { editing in
-                           dragging = editing
-                           if !editing { fans.setMode(.custom(sliderValue)) }
-                       })
-                    .controlSize(.small)
-                    .disabled(fans.helperStatus != .ready || fans.thermalLockout)
+                CapsuleSlider(value: Binding(get: { dragging ? sliderValue : currentFraction(fan) },
+                                             set: { sliderValue = $0 }),
+                              in: min(max(fan.minRPM / fan.maxRPM, 0), 0.99)...1,
+                              icon: "fan.fill", label: tr("Fan speed", "Tốc độ quạt"),
+                              onEditingChanged: { editing in
+                                  if editing { sliderValue = currentFraction(fan) }
+                                  dragging = editing
+                                  if !editing { fans.setMode(.custom(sliderValue)) }
+                              })
+                    .disabled(fans.helperStatus != .ready || fans.isBusy)
                 HStack {
                     Text("\(Int(fan.minRPM)) RPM")
                     Spacer()
@@ -75,6 +76,13 @@ public struct ThermalFanCard: View {
         if let message = fans.message {
             Text(message).font(.system(size: FS.label)).foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+        if fans.helperStatus == .ready || FanHelper.isInstalled {
+            Button(tr("Remove helper", "Gỡ helper")) { fans.removeHelper() }
+                .buttonStyle(.borderless).font(.system(size: FS.caption)).foregroundStyle(.secondary)
+                .disabled(fans.isBusy)
+                .help(tr("Returns the fans to System and removes the helper and its sudo rule.",
+                         "Trả quạt về Hệ thống rồi gỡ helper và quy tắc sudo của nó."))
         }
     }
 
@@ -99,13 +107,14 @@ public struct ThermalFanCard: View {
 
     private func sliderCaption(_ fan: FanInfo) -> String {
         let f = dragging ? sliderValue : currentFraction(fan)
-        let prefix = fans.mode == .system && !dragging ? tr("Auto", "Tự động") : tr("Manual", "Đặt tay")
+        // The fan's real state, so a speed still pinned (or pinned by another tool) never reads Auto.
+        let prefix = fans.mode == .system && !fan.isManual && !dragging ? tr("Auto", "Tự động") : tr("Manual", "Đặt tay")
         return "\(prefix) · \(Int(fan.maxRPM * f)) RPM (\(Int(f * 100))%)"
     }
 
     private var statusText: String {
         guard let t = monitor.thermal.cpuHottest else { return tr("Reading sensors…", "Đang đọc cảm biến…") }
-        if fans.thermalLockout { return tr("Hot — fans held on System", "Nóng — quạt giữ ở chế độ Hệ thống") }
+        if fans.thermalLockout { return tr("Hot — slow fan speeds are blocked", "Nóng — chặn các tốc độ quạt thấp") }
         return t < 60 ? tr("Cool", "Mát mẻ") : (t < 80 ? tr("Warm", "Ấm") : tr("Hot", "Nóng"))
     }
 

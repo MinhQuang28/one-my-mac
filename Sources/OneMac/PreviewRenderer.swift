@@ -34,7 +34,7 @@ struct PreviewRenderer {
 
     func run() {
         HardwareMonitor.shared.start()
-        FanController.shared.start()
+        FanController.shared.start(readOnly: true)
         SystemUsageMonitor.shared.start()
         SystemUsageMonitor.shared.setVisible(true)
         ChargeLimit.shared.refresh()

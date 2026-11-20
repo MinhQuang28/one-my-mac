@@ -123,7 +123,7 @@ public struct DisplayIdentityResolver {
                 tier = .weak
             }
 
-            var identity = DisplayIdentity(
+            let identity = DisplayIdentity(
                 cgDisplayID: display.cgDisplayID,
                 vendorID: display.vendorID != 0 ? display.vendorID : (record?.vendorID ?? 0),
                 productID: display.productID != 0 ? display.productID : (record?.productID ?? 0),
@@ -133,16 +133,42 @@ public struct DisplayIdentityResolver {
                 edidHash: edidHash,
                 keyTier: tier
             )
-            // Apply a user pin only after the heuristic key is known, because that key is what the
-            // pin is recorded against.
-            if let pinned = userAssignments[identity.stableKey] {
-                identity.userAssignedID = pinned
-            }
-
             results.append(ResolvedDisplay(identity: identity, metadata: record, pairing: confidence))
         }
 
+        separateCollidingKeys(in: &results)
+
+        // Apply a user pin only after the heuristic key is final, because that key is what the pin
+        // is recorded against.
+        for index in results.indices {
+            if let pinned = userAssignments[results[index].identity.stableKey] {
+                results[index].identity.userAssignedID = pinned
+            }
+        }
         return results
+    }
+
+    /// Demotes displays whose "strong" keys collide to the `.location` tier.
+    ///
+    /// A serial or EDID hash is only a discriminator when it differs. Some panels ship with a
+    /// placeholder serial (`0x01010101` has been seen on real hardware), so two units of one model
+    /// report the *same* non-zero serial and would both resolve to one `-s<hash>` key: one profile,
+    /// one brightness state, duplicate view identities. Keying those by port keeps them apart, and
+    /// marking the pairing ambiguous tells the user the assignment is a guess — which record went
+    /// with which display was decided by order, not by evidence.
+    private static func separateCollidingKeys(in results: inout [ResolvedDisplay]) {
+        var indicesByKey: [String: [Int]] = [:]
+        for index in results.indices {
+            indicesByKey[results[index].identity.stableKey, default: []].append(index)
+        }
+        for (key, indices) in indicesByKey where indices.count > 1 {
+            Log.identity.notice(
+                "\(indices.count, privacy: .public) displays resolved to the same key \(key, privacy: .public); keying them by port instead")
+            for index in indices {
+                results[index].identity.keyTier = .location
+                results[index].pairing = .ambiguous
+            }
+        }
     }
 
     // MARK: - Internals

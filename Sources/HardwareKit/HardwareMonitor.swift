@@ -11,8 +11,9 @@ public final class HardwareMonitor: ObservableObject {
     @Published public private(set) var battery: BatterySnapshot?
     @Published public private(set) var thermal: ThermalSnapshot = .empty
 
-    /// Called after every sample; the fan controller hooks its temperature guard here.
-    var onSample: ((ThermalSnapshot) -> Void)?
+    /// Called after every sample with the fans read alongside it; the fan controller hooks its
+    /// temperature guard here.
+    var onSample: ((ThermalSnapshot, [FanInfo]) -> Void)?
 
     private let queue = DispatchQueue(label: "com.onemac.hardware", qos: .utility)
     private var timer: Timer?
@@ -23,7 +24,7 @@ public final class HardwareMonitor: ObservableObject {
 
     /// Why readings are wanted while the panel is closed.
     enum BackgroundNeed {
-        /// A fan is on a manual speed: the temperature guard must keep watching.
+        /// A fan is on a manual speed (ours or not): the temperature guard must keep watching.
         case fanGuard
         /// The CPU temperature is shown next to the menu-bar icon.
         case menuBarTemperature
@@ -75,12 +76,13 @@ public final class HardwareMonitor: ObservableObject {
         queue.async { [weak self] in
             let thermal = HardwareReaders.thermal()
             let battery = HardwareReaders.battery(fallbackTemperature: thermal.battery)
+            let fans = FanInfo.readAll()
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.sampling = false
                 if self.thermal != thermal { self.thermal = thermal }
                 if self.battery != battery { self.battery = battery }
-                self.onSample?(thermal)
+                self.onSample?(thermal, fans)
             }
         }
     }

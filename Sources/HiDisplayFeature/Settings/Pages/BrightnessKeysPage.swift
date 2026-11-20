@@ -60,6 +60,16 @@ struct BrightnessKeysPage: View {
                 }
             }
         }
+        .task { await watchPermission() }
+    }
+
+    /// Keeps the permission row honest while it is on screen. macOS posts nothing when
+    /// Accessibility is granted or revoked, so the only way to know is to look.
+    private func watchPermission() async {
+        while !Task.isCancelled {
+            model.refreshAccessibilityState()
+            try? await Task.sleep(for: .seconds(2))
+        }
     }
 
     private func openAccessibilitySettings() {
