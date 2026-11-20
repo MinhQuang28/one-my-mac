@@ -5,6 +5,12 @@ mouse tuning, window snapping, fans and battery, and eye-break reminders. Englis
 
 Requires macOS 15 or later. Built and tested on Apple Silicon.
 
+## Screenshots
+
+| Displays | Mouse | Hardware | Utilities |
+| :---: | :---: | :---: | :---: |
+| <img src="docs/screenshots/panel-displays.png" width="200" alt="Displays tab: external display brightness slider and resolution picker"> | <img src="docs/screenshots/panel-mouse.png" width="200" alt="Mouse tab: scrolling mode, scroll speed, buttons and gestures"> | <img src="docs/screenshots/panel-hardware.png" width="200" alt="Hardware tab: battery level and charge limit, temperatures, fan control"> | <img src="docs/screenshots/panel-utilities.png" width="200" alt="Utilities tab: keep awake, eye breaks, window snapping, launch at login"> |
+
 ## Features
 
 | Area | What it does |

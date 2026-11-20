@@ -56,7 +56,8 @@ struct PanelView: View {
             PanelFooter()
                 .padding(.horizontal, Gap.md).padding(.vertical, Gap.sm)
         }
-        .frame(width: PanelSize.width, height: PanelSize.height)
+        // The preview render sizes itself to the content instead of clipping it to the panel.
+        .frame(width: PanelSize.width, height: flatLayout ? nil : PanelSize.height)
         .id(language.language) // rebuild every string when the language changes
         .onAppear {
             Navigator.shared.showWindow = { openWindow(id: SettingsWindow.id) }

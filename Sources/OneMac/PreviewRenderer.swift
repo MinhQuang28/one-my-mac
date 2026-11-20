@@ -47,12 +47,12 @@ struct PreviewRenderer {
             } else if let pane {
                 await renderInWindow(SettingsWindow.detail(for: pane), size: NSSize(width: 700, height: paneHeight))
             } else {
+                // In a window too: `ImageRenderer` draws AppKit-backed controls (switches, buttons)
+                // as placeholders. The height is whatever the tab's content needs.
                 let view = PanelView(flatLayout: true, previewTab: PanelTab(rawValue: tab) ?? .hardware)
-                    .background(Color(nsColor: .windowBackgroundColor))
-                    .environment(\.colorScheme, .dark)
-                let renderer = ImageRenderer(content: view)
-                renderer.scale = 2
-                write(renderer.nsImage?.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
+                let width: CGFloat = 380
+                let height = NSHostingView(rootView: view.frame(width: width)).fittingSize.height
+                await renderInWindow(view, size: NSSize(width: width, height: height))
             }
             exit(0)
         }
