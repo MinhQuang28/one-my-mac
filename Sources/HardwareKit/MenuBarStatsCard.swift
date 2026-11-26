@@ -1,7 +1,7 @@
 import OneMacUI
 import SwiftUI
 
-/// Live CPU / RAM / GPU load plus the switches that put those numbers next to the menu-bar icon.
+/// Live CPU / RAM / GPU load, network speed and free disk space, plus the switches that put those numbers next to the menu-bar icon.
 public struct MenuBarStatsCard: View {
     @ObservedObject private var usage = SystemUsageMonitor.shared
     @ObservedObject private var monitor = HardwareMonitor.shared
@@ -25,6 +25,14 @@ public struct MenuBarStatsCard: View {
                                       : tr("Not supported", "Không hỗ trợ"),
                 isOn: Binding(get: { usage.showGPU && usage.hasGPU }, set: { usage.showGPU = $0 }),
                 disabled: !usage.hasGPU)
+            Divider().opacity(0.45)
+            row(icon: "arrow.up.arrow.down", title: tr("Show network speed", "Hiện tốc độ mạng"),
+                preview: SystemUsageMonitor.network(down: usage.usage.networkDown, up: usage.usage.networkUp),
+                isOn: $usage.showNetwork)
+            Divider().opacity(0.45)
+            row(icon: "internaldrive", title: tr("Show free disk space", "Hiện dung lượng trống"),
+                preview: SystemUsageMonitor.disk(usage.usage.diskFree),
+                isOn: $usage.showDisk)
         }
     }
 

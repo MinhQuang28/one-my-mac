@@ -11,6 +11,7 @@ import HiDisplayKit
 ///     swift run hidisplay-probe            # read-only: enumerate, resolve, bind, read brightness
 ///     swift run hidisplay-probe --set 50   # additionally write a brightness value (asks first)
 ///     swift run hidisplay-probe --ddc-dump # hex-dump raw DDC replies, decoding nothing
+///     swift run hidisplay-probe --ddc-features # read-only: contrast, volume and input source
 ///
 /// Read-only by default. Writing is opt-in because a probe that changes what is on screen is a probe
 /// people stop trusting.
@@ -130,6 +131,28 @@ func probeBrightness() async {
                 print("read back: \(String(format: "%.0f%%", after * 100)) (was \(String(format: "%.0f%%", before * 100)))")
             } else {
                 print("read back failed")
+            }
+        }
+    }
+}
+
+// MARK: - Other DDC features
+
+/// Reads every VCP feature the app speaks and prints what the monitor answered. Read-only: this is
+/// how to find out whether a monitor's volume, contrast and input controls will appear in the app.
+@MainActor
+func probeFeatures() async {
+    let ddc = DDCBrightnessController()
+    for snapshot in snapshots where !snapshot.device.isBuiltIn {
+        let device = snapshot.device
+        heading("DDC features — \(device.name)")
+        for code in VCPCode.allCases {
+            let name = "\(code) (0x\(String(code.rawValue, radix: 16)))".padding(toLength: 20, withPad: " ", startingAt: 0)
+            do {
+                let reply = try await ddc.readFeature(code, display: device)
+                print("\(name): current \(reply.current & (code.isContinuous ? 0xFFFF : 0xFF)), maximum \(reply.maximum)")
+            } catch {
+                print("\(name): no — \(error)")
             }
         }
     }
@@ -311,6 +334,8 @@ if arguments.contains("--ddc-sweep") {
     await blindWrite(percent: percent)
 } else if wantsDDCDump {
     await dumpDDC()
+} else if arguments.contains("--ddc-features") {
+    await probeFeatures()
 } else {
     await probeBrightness()
 }

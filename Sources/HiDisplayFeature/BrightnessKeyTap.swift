@@ -1,7 +1,8 @@
 import AppKit
 import HiDisplayKit
 
-/// Intercepts the keyboard's brightness keys so they can drive an external display.
+/// Intercepts the keyboard's brightness keys — and, for a monitor's own speakers, the volume keys —
+/// so they can drive an external display.
 ///
 /// macOS routes F1/F2 to the built-in panel only; on a laptop docked to an external monitor they do
 /// nothing useful. This taps the system-defined event stream, works out which display the user means,
@@ -23,6 +24,8 @@ final class BrightnessKeyTap {
     private static let auxControlSubtype: Int16 = 8
     private static let brightnessUp = 2   // NX_KEYTYPE_BRIGHTNESS_UP
     private static let brightnessDown = 3 // NX_KEYTYPE_BRIGHTNESS_DOWN
+    /// NX_KEYTYPE_SOUND_UP, _SOUND_DOWN and _MUTE.
+    private static let volumeKeys: [Int: VolumeKey] = [0: .up, 1: .down, 7: .mute]
 
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -30,6 +33,9 @@ final class BrightnessKeyTap {
     /// Called with the signed step to apply and whether the "all displays" modifier was held.
     /// Returns true if an external display was adjusted, which is what decides consumption.
     var onBrightnessKey: ((Float, Bool) -> Bool)?
+    /// Called with a volume key and whether the fine-step modifiers were held. Returns true if a
+    /// monitor's volume was changed, which consumes the event.
+    var onVolumeKey: ((VolumeKey, Bool) -> Bool)?
     /// Called after the tap removed itself because Accessibility was revoked while it was running.
     var onTrustLost: (() -> Void)?
 
@@ -135,11 +141,18 @@ final class BrightnessKeyTap {
         let keyFlags = data1 & 0x0000_FFFF
         let isKeyDown = ((keyFlags & 0xFF00) >> 8) == 0x0A
 
+        let flags = event.flags
+        if let volumeKey = Self.volumeKeys[keyCode] {
+            guard isKeyDown else { return event }
+            // ⌥⇧ is the system's own modifier pair for quarter steps of volume.
+            let fine = flags.contains(.maskAlternate) && flags.contains(.maskShift)
+            return onVolumeKey?(volumeKey, fine) == true ? nil : event
+        }
+
         guard keyCode == Self.brightnessUp || keyCode == Self.brightnessDown else { return event }
         // Key-up is the other half of every press; acting on both would double every step.
         guard isKeyDown else { return event }
 
-        let flags = event.flags
         // Option for a finer step, Control to hit every display — chosen because neither collides with
         // a system brightness shortcut.
         let fine = flags.contains(.maskAlternate)

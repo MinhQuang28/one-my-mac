@@ -2,7 +2,7 @@
 import PackageDescription
 
 // OneMac = HiDisplay (display / HiDPI / DDC) + Mousse (mouse) + windows + hardware (battery, fans, keep-awake)
-// + eye breaks
+// + eye breaks + clipboard history
 // in one menu-bar app. Each part stays its own module so the original code keeps its language mode
 // and tests; the OneMac target only composes them.
 let package = Package(
@@ -31,6 +31,10 @@ let package = Package(
         .target(name: "EyeBreakKit", dependencies: ["OneMacUI"], path: "Sources/EyeBreakKit",
                 swiftSettings: [.swiftLanguageMode(.v5)]),
 
+        // ---- Clipboard history: text copied earlier, one shortcut away ----
+        .target(name: "ClipboardKit", dependencies: ["OneMacUI", "WindowKit"], path: "Sources/ClipboardKit",
+                swiftSettings: [.swiftLanguageMode(.v5)]),
+
         // ---- Mouse (from Mousse) ----
         .target(name: "MousseFeature", dependencies: ["OneMacUI", "WindowKit"], path: "Sources/MousseFeature",
                 swiftSettings: [.swiftLanguageMode(.v5)]),
@@ -46,7 +50,8 @@ let package = Package(
 
         // ---- The app ----
         .executableTarget(name: "OneMac",
-                          dependencies: ["HiDisplayFeature", "MousseFeature", "HardwareKit", "WindowKit", "EyeBreakKit", "OneMacUI"],
+                          dependencies: ["HiDisplayFeature", "MousseFeature", "HardwareKit", "WindowKit", "EyeBreakKit",
+                                         "ClipboardKit", "OneMacUI"],
                           path: "Sources/OneMac",
                           swiftSettings: [.swiftLanguageMode(.v5)]),
 
@@ -57,6 +62,8 @@ let package = Package(
         .testTarget(name: "WindowKitTests", dependencies: ["WindowKit"], path: "Tests/WindowKitTests",
                     swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "EyeBreakKitTests", dependencies: ["EyeBreakKit"], path: "Tests/EyeBreakKitTests",
+                    swiftSettings: [.swiftLanguageMode(.v5)]),
+        .testTarget(name: "ClipboardKitTests", dependencies: ["ClipboardKit"], path: "Tests/ClipboardKitTests",
                     swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "HardwareKitTests", dependencies: ["HardwareKit"], path: "Tests/HardwareKitTests",
                     swiftSettings: [.swiftLanguageMode(.v5)]),

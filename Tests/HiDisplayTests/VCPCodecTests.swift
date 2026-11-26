@@ -177,6 +177,21 @@ final class VCPCodecTests: XCTestCase {
         }
     }
 
+    func testInputSourceReplyMayReportAZeroMaximum() throws {
+        // The input source is a choice, not a level: many monitors leave its maximum at zero.
+        let reply = try VCPCodec.decodeReply(
+            makeReply(current: 0x0F, maximum: 0, code: 0x60), expecting: .inputSource)
+        XCTAssertEqual(reply.current, 0x0F)
+    }
+
+    func testVolumeReplyStillRejectsAZeroMaximum() {
+        XCTAssertThrowsError(
+            try VCPCodec.decodeReply(makeReply(current: 0, maximum: 0, code: 0x62), expecting: .volume)
+        ) { error in
+            XCTAssertEqual(error as? VCPCodec.DecodeError, .zeroMaximum)
+        }
+    }
+
     func testRejectsShortFrame() {
         XCTAssertThrowsError(try VCPCodec.decodeReply([0x6E, 0x88], expecting: .brightness)) { error in
             XCTAssertEqual(error as? VCPCodec.DecodeError, .shortFrame(got: 2))

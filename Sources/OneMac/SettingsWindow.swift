@@ -1,3 +1,4 @@
+import ClipboardKit
 import EyeBreakKit
 import HardwareKit
 import HiDisplayFeature
@@ -31,6 +32,7 @@ struct SettingsWindow: View {
                 Section(tr("Mouse", "Chuột")) { ForEach(Self.mousePages, id: \.self, content: row) }
                 Section(tr("Windows", "Cửa sổ")) { row(.windows) }
                 Section(tr("Wellbeing", "Sức khoẻ")) { row(.eyeBreaks) }
+                Section(tr("Productivity", "Năng suất")) { row(.clipboard) }
                 Section("OneMac") { row(.general) }
             }
             .listStyle(.sidebar)
@@ -42,6 +44,7 @@ struct SettingsWindow: View {
                 .toolbarBackground(.hidden, for: .windowToolbar)
         }
         .frame(minWidth: 780, minHeight: 560)
+        .buttonStyle(PillButtonStyle()) // every push button without a style of its own
         .id(language.language) // rebuild every string when the language changes
     }
 
@@ -62,6 +65,8 @@ struct SettingsWindow: View {
             WindowsPage()
         case .eyeBreaks:
             EyeBreakPage()
+        case .clipboard:
+            ClipboardPage()
         case .general:
             GeneralPane()
         }

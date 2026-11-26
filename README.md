@@ -1,7 +1,8 @@
 # OneMac
 
 One menu-bar app for the small things macOS leaves out: external display brightness and HiDPI,
-mouse tuning, window snapping, fans and battery, and eye-break reminders. English and Vietnamese UI.
+mouse tuning, window snapping, fans and battery, eye-break reminders, and a clipboard history.
+English and Vietnamese UI.
 
 Requires macOS 15 or later. Built and tested on Apple Silicon.
 
@@ -15,12 +16,13 @@ Requires macOS 15 or later. Built and tested on Apple Silicon.
 
 | Area | What it does |
 | --- | --- |
-| **Displays** | Brightness for external monitors (DDC, with gamma or shade dimming as fallback), brightness keys for the display under the pointer, resolution switching, per-display saved profiles. |
+| **Displays** | Brightness for external monitors (DDC, with gamma or shade dimming as fallback), brightness keys for the display under the pointer, resolution switching, per-display saved profiles. Monitor volume (slider and volume keys), contrast and input source over DDC. |
 | **HiDPI** | Adds Retina (HiDPI) resolutions to 1080p / 1440p monitors through a display override, with a recovery package and one-click restore or removal. |
 | **Mouse** | Smooth scrolling and scroll speed, zoom with ⌘ + wheel, button remapping and pairing, drag gestures between Spaces. |
 | **Windows** | Snap windows to halves, quarters and zones by shortcut or by dragging; move windows between displays. |
-| **Hardware** | Battery level, health and charge limit; temperatures; manual fan speed through a small root helper; keep-awake. |
-| **Eye breaks** | Timed rest reminders with a full-screen break overlay that pauses while media is playing. |
+| **Hardware** | Battery level, health and charge limit; temperatures; manual fan speed through a small root helper; keep-awake. CPU, RAM, GPU, network speed and free disk space next to the menu-bar icon. |
+| **Eye breaks** | Timed rest reminders in four looks that rotate from break to break: two dim the screen slowly, two leave it usable. Breaks wait while media is playing. |
+| **Clipboard** | History of copied text, links, images and files behind one shortcut (⇧⌘V by default): search, filter by type, preview, pin, paste. Off until switched on; skips copies that password managers mark as private. |
 
 ## Install
 
@@ -41,7 +43,8 @@ shasum -a 256 -c OneMac.zip.sha256
 
 ### Permissions
 
-- **Accessibility** — brightness keys, mouse remapping and window snapping.
+- **Accessibility** — brightness and volume keys, mouse remapping, window snapping, and pasting straight
+  from the clipboard history.
 - **Administrator password** — only when installing a HiDPI override or the fan helper.
 
 ## Build from source

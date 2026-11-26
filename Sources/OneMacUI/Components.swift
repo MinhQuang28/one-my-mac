@@ -117,7 +117,7 @@ public struct StatTile: View {
     }
 }
 
-/// Segmented chips: equal-width buttons, one selected.
+/// Segmented chips: equal-width capsules in a capsule track, one selected.
 public struct ChipPicker<Value: Hashable>: View {
     let options: [(Value, String)]
     @Binding var selection: Value
@@ -125,21 +125,23 @@ public struct ChipPicker<Value: Hashable>: View {
         self.options = options; _selection = selection
     }
     public var body: some View {
-        HStack(spacing: Gap.xs) {
+        HStack(spacing: 2) {
             ForEach(Array(options.enumerated()), id: \.offset) { _, option in
                 let selected = option.0 == selection
                 Button { selection = option.0 } label: {
                     Text(option.1)
-                        .font(.system(size: FS.label, weight: selected ? .semibold : .medium))
-                        .frame(maxWidth: .infinity).padding(.vertical, 6)
+                        .font(.system(size: FS.body, weight: selected ? .semibold : .medium)).lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .frame(maxWidth: .infinity).padding(.vertical, 7)
                         .foregroundStyle(selected ? Color.white : Color.primary)
-                        .background(RoundedRectangle(cornerRadius: Rad.sm + 1, style: .continuous)
-                            .fill(selected ? Color.accentColor : Color.tileFill))
-                        .contentShape(Rectangle())
+                        .background(Capsule().fill(selected ? Color.accentColor : Color.clear))
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
             }
         }
+        .padding(3)
+        .background(Capsule().fill(Color.primary.opacity(0.08)))
     }
 }
 
@@ -183,5 +185,40 @@ public struct LinkButton: View {
             .font(.system(size: FS.label, weight: .medium))
         }
         .buttonStyle(.borderless)
+    }
+}
+
+/// Push buttons on cards: a full-height capsule, as in current macOS. Drawn by hand rather than
+/// with the system's glass style, so it looks the same on every macOS the app runs on.
+public struct PillButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    /// Filled with the accent colour: the one button on a page that moves things forward.
+    let prominent: Bool
+    public init(prominent: Bool = false) { self.prominent = prominent }
+
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: FS.title, weight: .medium)).lineLimit(1)
+            .padding(.horizontal, 14).padding(.vertical, 7)
+            .foregroundStyle(prominent ? Color.white : Color.primary)
+            .background(Capsule().fill(prominent
+                ? Color.accentColor.opacity(configuration.isPressed ? 0.8 : 1)
+                : Color.primary.opacity(configuration.isPressed ? 0.22 : 0.12)))
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(prominent ? 0 : 0.08)))
+            .opacity(isEnabled ? 1 : 0.45)
+            .contentShape(Capsule())
+    }
+}
+
+public extension View {
+    /// Gives a `Button` the capsule look of `PillButtonStyle`.
+    func pillControl() -> some View { buttonStyle(PillButtonStyle()) }
+
+    /// The same capsule around a pull-down `Menu`, which does not take custom button styles.
+    func pillMenu() -> some View {
+        menuStyle(.borderlessButton).fixedSize()
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(Capsule().fill(Color.primary.opacity(0.12)))
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
     }
 }

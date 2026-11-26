@@ -147,6 +147,8 @@ public protocol DDCControlling: BrightnessController {
     func seedFacts(_ facts: DDCSessionFacts, for key: String) async
     func facts(for key: String) async -> DDCSessionFacts?
     func invalidateAll(except liveKeys: Set<String>) async
+    func readFeature(_ code: VCPCode, display: DisplayDevice) async throws -> VCPCodec.Reply
+    func writeFeature(_ code: VCPCode, raw: UInt16, display: DisplayDevice) async throws
 }
 
 // Structural conformance only. `GammaBrightnessController` and `ShadeBrightnessController` already

@@ -1,3 +1,4 @@
+import ClipboardKit
 import EyeBreakKit
 import HardwareKit
 import HiDisplayFeature
@@ -6,7 +7,7 @@ import ServiceManagement
 import SwiftUI
 import WindowKit
 
-/// The Utilities tab: keep-awake, eye breaks, launch at login, brightness keys and display recovery.
+/// The Utilities tab: keep-awake, eye breaks, window snapping, clipboard history, launch at login, brightness keys and display recovery.
 struct UtilityCards: View {
     @StateObject private var login = LoginItemState()
 
@@ -15,6 +16,7 @@ struct UtilityCards: View {
             KeepAwakeCard()
             EyeBreakCard()
             WindowSnapCard()
+            ClipboardCard()
             Card {
                 CardHeader(icon: "power", tint: .green, title: tr("Launch at login", "Khởi động cùng macOS"),
                            subtitle: login.detail) {
@@ -25,14 +27,14 @@ struct UtilityCards: View {
                 CardHeader(icon: "sun.max.fill", tint: .yellow, title: tr("Brightness keys F1/F2", "Phím độ sáng F1/F2"),
                            subtitle: tr("Dim external displays with the Mac's own keys",
                                         "Chỉnh độ sáng màn ngoài bằng phím của Mac")) {
-                    Button(tr("Open…", "Mở…")) { Navigator.shared.open(.brightnessKeys) }.controlSize(.small)
+                    Button(tr("Open…", "Mở…")) { Navigator.shared.open(.brightnessKeys) }.pillControl()
                 }
             }
             Card {
                 CardHeader(icon: "lifepreserver", tint: .red, title: tr("Rescue a dark screen", "Cứu màn hình tối"),
                            subtitle: tr("Clears all software dimming on every display",
                                         "Xoá mọi làm tối bằng phần mềm trên tất cả màn hình")) {
-                    Button(tr("Reset", "Đặt lại")) { HiDisplayModule.resetDimming() }.controlSize(.small)
+                    Button(tr("Reset", "Đặt lại")) { HiDisplayModule.resetDimming() }.pillControl()
                 }
             }
         }

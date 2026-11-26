@@ -84,7 +84,17 @@ final class AppModel: ObservableObject {
     /// Mirrors the Accessibility permission so Settings can react without polling from the view.
     @Published var isAccessibilityTrusted = BrightnessKeyTap.isAccessibilityTrusted
     private let keyTap = BrightnessKeyTap()
-    private let osd = BrightnessOSD()
+    let osd = BrightnessOSD()
+
+    // MARK: Volume, contrast, input (see `AppModel+Extras.swift`)
+
+    /// Present once a display's extras have been read.
+    @Published var extras: [String: DisplayExtras] = [:]
+    var extrasLoading: Set<String> = []
+    var volumeBeforeMute: [String: Float] = [:]
+    @Published var volumeKeysEnabled = false
+    /// One event tap serves both kinds of key, so it runs while either is wanted.
+    private var keysWanted: Bool { brightnessKeysEnabled || volumeKeysEnabled }
     private var permissionWatch: Task<Void, Never>?
 
     /// App-level preferences live in UserDefaults rather than the profile store: they are not
@@ -92,6 +102,7 @@ final class AppModel: ObservableObject {
     private enum DefaultsKey {
         static let keysEnabled = "brightnessKeysEnabled"
         static let keyTarget = "brightnessKeyTarget"
+        static let volumeKeysEnabled = "volumeKeysEnabled"
     }
 
     private var cancellables: Set<AnyCancellable> = []
@@ -146,11 +157,14 @@ final class AppModel: ObservableObject {
         keyTap.onBrightnessKey = { [weak self] delta, allDisplays in
             self?.handleBrightnessKey(delta: delta, forceAllDisplays: allDisplays) ?? false
         }
+        keyTap.onVolumeKey = { [weak self] key, fine in
+            self?.handleVolumeKey(key, fine: fine) ?? false
+        }
         keyTap.onTrustLost = { [weak self] in
             guard let self else { return }
             self.isAccessibilityTrusted = false
             // Still wanted: pick the tap back up if the permission returns.
-            if self.brightnessKeysEnabled { self.startWatchingForPermission() }
+            if self.keysWanted { self.startWatchingForPermission() }
         }
 
         // A monitor sleep/wake cycle can replace a display's IOAVService without any display
@@ -188,6 +202,7 @@ final class AppModel: ObservableObject {
     func start() async {
         let defaults = UserDefaults.standard
         brightnessKeysEnabled = defaults.bool(forKey: DefaultsKey.keysEnabled)
+        volumeKeysEnabled = defaults.bool(forKey: DefaultsKey.volumeKeysEnabled)
         if let raw = defaults.string(forKey: DefaultsKey.keyTarget),
            let target = BrightnessKeyTarget(rawValue: raw) {
             brightnessKeyTarget = target
@@ -195,16 +210,10 @@ final class AppModel: ObservableObject {
         // Re-arm the tap on launch, but only if permission is still granted — the user may have
         // revoked it since, and starting must not re-prompt on every launch.
         isAccessibilityTrusted = BrightnessKeyTap.isAccessibilityTrusted
-        if brightnessKeysEnabled {
-            if isAccessibilityTrusted {
-                keyTap.start()
-            } else {
-                // Enabled but not trusted — revoked, or the app was re-signed and macOS dropped the
-                // grant. Watch without prompting, so granting it in System Settings is enough; this
-                // used to need the switch toggled off and on again.
-                startWatchingForPermission()
-            }
-        }
+        // Enabled but not trusted means revoked, or the app was re-signed and macOS dropped the
+        // grant. Watch without prompting, so granting it in System Settings is enough; this used
+        // to need the switch toggled off and on again.
+        syncKeyTap(promptIfNeeded: false)
 
         await profiles.load()
         let assignments = await profiles.userAssignments()
@@ -254,6 +263,7 @@ final class AppModel: ObservableObject {
 
         await brightness.handleSettledDisplays(displays)
         await persistDDCFacts(for: displays)
+        pruneExtras(keeping: displays)
         // Only the list Settings shows. The brightness cache is deliberately not rebuilt here: a
         // slider change still on its way to the store would be overwritten by the older value.
         savedProfiles = await profiles.allProfiles()
@@ -375,7 +385,18 @@ final class AppModel: ObservableObject {
     func setBrightnessKeysEnabled(_ enabled: Bool) {
         brightnessKeysEnabled = enabled
         UserDefaults.standard.set(enabled, forKey: DefaultsKey.keysEnabled)
-        guard enabled else {
+        syncKeyTap(promptIfNeeded: enabled)
+    }
+
+    func setVolumeKeysEnabled(_ enabled: Bool) {
+        volumeKeysEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: DefaultsKey.volumeKeysEnabled)
+        syncKeyTap(promptIfNeeded: enabled)
+    }
+
+    /// Starts or stops the tap to match the two switches.
+    private func syncKeyTap(promptIfNeeded: Bool) {
+        guard keysWanted else {
             keyTap.stop()
             permissionWatch?.cancel()
             return
@@ -384,7 +405,7 @@ final class AppModel: ObservableObject {
             // Not yet trusted. Prompt, then watch for the grant — macOS posts no notification for this,
             // and the user has to leave the app to grant it, so polling briefly is the only way to pick
             // the permission up without making them toggle the switch again.
-            BrightnessKeyTap.requestAccessibility()
+            if promptIfNeeded { BrightnessKeyTap.requestAccessibility() }
             startWatchingForPermission()
         }
     }
@@ -403,7 +424,7 @@ final class AppModel: ObservableObject {
     func refreshAccessibilityState() {
         let trusted = BrightnessKeyTap.isAccessibilityTrusted
         if isAccessibilityTrusted != trusted { isAccessibilityTrusted = trusted }
-        guard brightnessKeysEnabled else { return }
+        guard keysWanted else { return }
         if trusted {
             if !keyTap.isRunning { keyTap.start() }
         } else if keyTap.isRunning {
@@ -422,7 +443,7 @@ final class AppModel: ObservableObject {
                 guard let self, !Task.isCancelled else { return }
                 self.isAccessibilityTrusted = BrightnessKeyTap.isAccessibilityTrusted
                 guard self.isAccessibilityTrusted else { continue }
-                if self.brightnessKeysEnabled { self.keyTap.start() }
+                if self.keysWanted { self.keyTap.start() }
                 return
             }
         }

@@ -246,5 +246,26 @@ carries no data. It is not distinguishable from a monitor with DDC/CI switched o
 
 ## Scope
 
-Brightness (`0x10`) only. Contrast, volume, mute, input source and power are deliberately absent from the
-MVP so that a bug in this layer cannot mute a monitor or switch it to a dead input.
+| VCP | Feature | Written when |
+| --- | --- | --- |
+| `0x10` | Brightness | Slider, brightness keys, restore of the saved value after a probe or wake. |
+| `0x12` | Contrast | Only when the user moves its slider on the display's settings page. |
+| `0x62` | Volume | Its slider, or the volume keys while sound plays through that monitor. |
+| `0x60` | Input source | Only after the user confirms a dialog. |
+
+Brightness is the only value the app writes on its own. The other three are read on demand (when
+the display's card or page is shown, or on the first volume key press) and never restored or synced,
+so a bug cannot mute a monitor or change its picture unasked. Input switching is confirmed because
+a monitor sent to an input with nothing connected shows "no signal" and no longer answers DDC from
+this Mac; only its own buttons bring it back.
+
+All four share the display's one `DDCCommandQueue`, so the bus token, write spacing and learned frame
+shape apply to every feature. Writes coalesce per feature. The input source reply's maximum field is
+not a range and may be zero; `VCPCodec.decodeReply` accepts that for this code only.
+
+Mute (`0x8D`) and power (`0xD6`) are still absent. The mute key sets the volume to zero and restores
+the previous level on the next press.
+
+The volume keys act only while the default audio output is a DisplayPort or HDMI device with no
+system volume control (`AudioOutputProbe`). The audio device is matched to a display by name; with a
+single DDC display connected, that display is used whatever the name.

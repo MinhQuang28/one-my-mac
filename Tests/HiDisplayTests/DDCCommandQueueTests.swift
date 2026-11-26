@@ -25,6 +25,31 @@ final class DDCCommandQueueTests: XCTestCase {
         XCTAssertEqual(sent.last, 98, "the value the user released on must be the last one written")
     }
 
+    func testFeaturesCoalesceSeparatelyAndEachLandsOnItsFinalValue() async throws {
+        let transport = FakeDDCTransport()
+        let queue = DDCCommandQueue(transport: transport, label: "test", writeInterval: interval)
+
+        // A brightness drag and a volume drag at once: neither may swallow the other's last value.
+        for value in stride(from: UInt16(0), through: 40, by: 2) {
+            await queue.setBrightness(raw: value)
+            await queue.set(.volume, raw: value + 50)
+        }
+        await queue.waitUntilIdle()
+
+        // Shape-agnostic, like `FakeDDCTransport.recordedBrightnessValues`.
+        func lastValue(of code: VCPCode) -> UInt16? {
+            transport.recordedWrites.compactMap { frame -> UInt16? in
+                let opcode = frame.first == DDC.hostAddress ? 2 : 1
+                guard frame.count >= opcode + 4, frame[opcode] == 0x03,
+                      frame[opcode + 1] == code.rawValue else { return nil }
+                return UInt16(frame[opcode + 2]) << 8 | UInt16(frame[opcode + 3])
+            }.last
+        }
+        XCTAssertEqual(lastValue(of: .brightness), 40)
+        XCTAssertEqual(lastValue(of: .volume), 90)
+        XCTAssertLessThan(transport.recordedWrites.count, 42, "both drags must be coalesced")
+    }
+
     func testWritesAreSpacedAndNeverConcurrent() async throws {
         // A transport with latency would overlap if the queue allowed concurrency.
         let transport = FakeDDCTransport(latency: .milliseconds(5))

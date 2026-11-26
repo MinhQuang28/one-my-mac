@@ -20,8 +20,8 @@ public final class EyeBreaks: ObservableObject {
     /// Hold the break back while a video, call or presentation keeps the display on.
     @Published public var deferForMedia: Bool { didSet { save(deferForMedia, "defer_media") } }
     @Published public var allowSkip: Bool { didSet { save(allowSkip, "allow_skip") } }
-    /// Small card at the top centre instead of a curtain over every display.
-    @Published public var compact: Bool { didSet { save(compact, "compact"); overlay.hide() } }
+    /// One look for every break, or a different one each time.
+    @Published public var style: BreakStyleChoice { didSet { save(style.stored, "style"); overlay.hide() } }
     @Published public var chime: Bool { didSet { save(chime, "chime") } }
     /// Minutes to the next break next to the menu-bar icon.
     @Published public var showInMenuBar: Bool { didSet { save(showInMenuBar, "menu_bar") } }
@@ -56,7 +56,7 @@ public final class EyeBreaks: ObservableObject {
         allowSkip = bool("allow_skip", true)
         chime = bool("chime", true)
         showInMenuBar = bool("menu_bar", true)
-        compact = bool("compact", false)
+        style = BreakStyleChoice(stored: d.string(forKey: Self.prefix + "style"))
         breakCount = max(0, d.integer(forKey: Self.prefix + "count"))
         schedule = BreakSchedule(interval: 0, breakLength: 0, headsUpLead: 0, now: Date())
         rebuild()
@@ -193,7 +193,7 @@ public final class EyeBreaks: ObservableObject {
         if !Self.looksTheSame(phase, next) { phase = next }
         switch next {
         // A break that gave up waiting for a call never covers the screen.
-        case .onBreak: overlay.showBreak(compact: compact || schedule.breakIsGentle)
+        case .onBreak: overlay.showBreak(style: style.style(forBreak: breakCount, gentle: schedule.breakIsGentle))
         case .headsUp: overlay.showNotice()
         case .working, .deferred, .paused: overlay.hide()
         }
@@ -203,6 +203,13 @@ public final class EyeBreaks: ObservableObject {
         if case let .working(a)? = old, case let .working(b) = new { return (a / 60).rounded(.up) == (b / 60).rounded(.up) }
         return old == new
     }
+
+    #if DEBUG
+    /// For `BreakStylePreview`: a break (or the heads-up) frozen part-way, without a running schedule.
+    func freezeForPreview(notice: Bool) {
+        phase = notice ? .headsUp(remaining: 22) : .onBreak(remaining: Double(breakSeconds) * 0.6)
+    }
+    #endif
 
     // MARK: Persistence
 

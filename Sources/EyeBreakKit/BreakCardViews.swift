@@ -1,38 +1,56 @@
 import OneMacUI
 import SwiftUI
 
-/// The small card at the top centre of the screen: a clock, a countdown, one line of text and a row
-/// of buttons. Used for the heads-up before a break and, in the compact style, for the break itself.
-private struct BreakCard<Buttons: View>: View {
-    let remaining: TimeInterval
-    let text: String
-    @ViewBuilder let buttons: Buttons
+/// Window sizes of the small break looks. Larger than what is drawn, to leave room for the shadow
+/// and the entrance; the transparent rest lets clicks through.
+enum BreakCardMetrics {
+    static let island = NSSize(width: 720, height: 84)
+    static let corner = NSSize(width: 384, height: 200)
+}
+
+/// The dark pill under the menu bar. Drops in from the top with a small bounce.
+private struct BreakIsland<Content: View>: View {
+    @ViewBuilder let content: Content
+    @State private var shown = false
 
     var body: some View {
-        let seconds = Int(remaining.rounded(.up))
-        VStack(alignment: .leading, spacing: Gap.md) {
-            HStack(spacing: Gap.md) {
-                CountdownClock(remaining: remaining).frame(width: 52, height: 52)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(String(format: "%02d:%02d", seconds / 60, seconds % 60))
-                        .font(.system(size: 26, weight: .bold, design: .rounded)).monospacedDigit()
-                        .contentTransition(.numericText())
-                    Text(text).font(.system(size: FS.subhead)).foregroundStyle(.secondary)
-                        .lineLimit(1).minimumScaleFactor(0.8)
-                }
-            }
-            HStack(spacing: Gap.sm) { buttons }
-        }
-        .padding(Gap.lg)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Rad.lg + 4, style: .continuous).fill(.regularMaterial))
-        .overlay(RoundedRectangle(cornerRadius: Rad.lg + 4, style: .continuous).stroke(Color.hairline))
-        .padding(6)
+        HStack(spacing: 12) { content }
+            .foregroundStyle(.white)
+            .padding(.leading, 10).padding(.trailing, 12).padding(.vertical, 9)
+            .background(Capsule().fill(Color(white: 0.04)))
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.1)))
+            .shadow(color: .black.opacity(0.35), radius: 12, y: 5)
+            .fixedSize()
+            .scaleEffect(shown ? 1 : 0.5, anchor: .top)
+            .offset(y: shown ? 0 : -24)
+            .opacity(shown ? 1 : 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.top, 6)
+            .onAppear { withAnimation(.spring(response: 0.5, dampingFraction: 0.7).delay(0.15)) { shown = true } }
     }
 }
 
-enum BreakCardMetrics {
-    static let size = NSSize(width: 460, height: 150)
+/// A small ring with the seconds left inside, then a title over one quiet line.
+private struct IslandLead: View {
+    let remaining: TimeInterval
+    let progress: Double
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        ZStack {
+            BreakRing(progress: progress, lineWidth: 3, tint: BreakPalette.teal)
+            Text(breakClock(remaining)).font(.system(size: 13, weight: .semibold, design: .rounded))
+                .monospacedDigit().contentTransition(.numericText())
+        }
+        .frame(width: 34, height: 34)
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title).font(.system(size: 14, weight: .semibold))
+            Text(subtitle).font(.system(size: 11.5)).opacity(0.6)
+        }
+        .lineLimit(1)
+        .padding(.trailing, 4)
+    }
 }
 
 /// Shown shortly before a break: start early or push it back.
@@ -42,93 +60,79 @@ struct BreakNoticeView: View {
     var body: some View {
         var remaining: TimeInterval = 0
         if case let .headsUp(left) = breaks.phase { remaining = left }
-        return BreakCard(remaining: remaining,
-                         text: tr("Eye break coming up. Wrap up what you're doing.",
-                                  "Sắp tới giờ nghỉ mắt. Tạm khép lại việc đang dở nhé.")) {
-            CardChip(tr("Start the break now", "Nghỉ ngay bây giờ"), prominent: true, action: breaks.takeBreakNow)
+        return BreakIsland {
+            IslandLead(remaining: remaining, progress: min(1, remaining / EyeBreaks.headsUpSeconds),
+                       title: tr("Eye break coming up", "Sắp tới giờ nghỉ mắt"),
+                       subtitle: tr("Wrap up what you're doing", "Tạm khép lại việc đang dở"))
+            BreakButton(title: tr("Start now", "Nghỉ ngay"), size: 12, action: breaks.takeBreakNow)
             if breaks.allowSkip {
                 ForEach(EyeBreaks.postponeChoices, id: \.self) { minutes in
-                    CardChip(tr("+\(minutes) min", "+\(minutes) phút")) { breaks.postpone(minutes: minutes) }
+                    BreakButton(title: tr("+\(minutes) min", "+\(minutes) phút"), quiet: true, size: 12) {
+                        breaks.postpone(minutes: minutes)
+                    }
                 }
             }
         }
     }
 }
 
-/// The break itself in the compact style: the screen stays usable, the card counts the rest down.
-struct BreakCompactView: View {
+/// The break as an island: the screen stays usable, the pill counts the rest down.
+struct BreakIslandView: View {
     @ObservedObject private var breaks = EyeBreaks.shared
 
     var body: some View {
-        var remaining: TimeInterval = 0
-        if case let .onBreak(left) = breaks.phase { remaining = left }
-        let tip = BreakTip.forBreak(breaks.breakCount)
-        return BreakCard(remaining: remaining, text: tr("Rest your eyes: \(tip.title.lowercased())", "Nghỉ mắt: \(tip.title.lowercased())")) {
+        BreakIsland {
+            IslandLead(remaining: breaks.breakRemaining, progress: breaks.breakProgress,
+                       title: tr("Rest your eyes", "Nghỉ mắt"), subtitle: breaks.tip.title)
             if breaks.allowSkip {
-                CardChip(tr("Skip this break", "Bỏ qua lần nghỉ này"), prominent: true, action: breaks.skip)
-                CardChip(tr("+5 min", "+5 phút")) { breaks.postpone(minutes: 5) }
-                CardChip(tr("+15 min", "+15 phút")) { breaks.postpone(minutes: 15) }
-            } else {
-                Label(tr("Look away until the clock runs out", "Rời mắt khỏi màn hình tới khi hết giờ"),
-                      systemImage: "eye.slash").font(.system(size: FS.subhead)).foregroundStyle(.secondary)
+                BreakButton(title: tr("+5 min", "+5 phút"), size: 12) { breaks.postpone(minutes: 5) }
+                BreakButton(title: tr("Skip", "Bỏ qua"), quiet: true, size: 12, action: breaks.skip)
             }
         }
     }
 }
 
-private struct CardChip: View {
-    let title: String
-    let prominent: Bool
-    let action: () -> Void
-
-    init(_ title: String, prominent: Bool = false, action: @escaping () -> Void) {
-        self.title = title; self.prominent = prominent; self.action = action
-    }
+/// The break as a glass card in the bottom-right corner, sliding up like a notification.
+struct BreakCornerView: View {
+    @ObservedObject private var breaks = EyeBreaks.shared
+    @State private var shown = false
 
     var body: some View {
-        Button(action: action) {
-            // The main action keeps its natural width; the others share what is left of the row.
-            Text(title).font(.system(size: FS.subhead, weight: .medium)).lineLimit(1)
-                .fixedSize(horizontal: prominent, vertical: false)
-                .frame(maxWidth: prominent ? nil : .infinity)
-                .padding(.horizontal, prominent ? Gap.lg + 2 : Gap.sm).padding(.vertical, 9)
-                .background(Capsule().fill(Color.primary.opacity(prominent ? 0.14 : 0)))
-                .overlay(Capsule().strokeBorder(Color.primary.opacity(prominent ? 0 : 0.2)))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .focusEffectDisabled() // the panel takes key focus on click; no blue ring around the pills
-    }
-}
-
-/// A small clock face whose hand sweeps like a second hand and reaches twelve when time is up.
-private struct CountdownClock: View {
-    let remaining: TimeInterval
-
-    var body: some View {
-        GeometryReader { proxy in
-            let side = min(proxy.size.width, proxy.size.height)
-            ZStack {
-                Circle().fill(LinearGradient(colors: [.teal, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
-                // A soft highlight from the top-left, so the face reads as a dome rather than a flat disc.
-                Circle().fill(RadialGradient(colors: [Color.white.opacity(0.35), .clear], center: .init(x: 0.3, y: 0.22),
-                                             startRadius: 0, endRadius: side * 0.6))
-                Circle().strokeBorder(Color.white.opacity(0.25), lineWidth: side * 0.03)
-                ForEach(0..<12, id: \.self) { hour in
-                    Capsule().fill(Color.white.opacity(hour % 3 == 0 ? 0.9 : 0.45))
-                        .frame(width: side * 0.045, height: side * (hour % 3 == 0 ? 0.11 : 0.07))
-                        .offset(y: -side * 0.33)
-                        .rotationEffect(.degrees(Double(hour) * 30))
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(tr("Rest your eyes a moment", "Nghỉ mắt một chút")).font(.system(size: 15, weight: .semibold))
+                Spacer()
+                Text(breakClock(breaks.breakRemaining)).font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .monospacedDigit().contentTransition(.numericText()).foregroundStyle(BreakPalette.teal)
+            }
+            Text(breaks.tip.detail).font(.system(size: 12.5)).opacity(0.78)
+                .fixedSize(horizontal: false, vertical: true)
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.14))
+                    Capsule().fill(BreakPalette.teal).frame(width: proxy.size.width * breaks.breakProgress)
+                        .animation(.linear(duration: 1), value: breaks.breakProgress)
                 }
-                Capsule().fill(Color.white)
-                    .frame(width: side * 0.07, height: side * 0.3)
-                    .offset(y: -side * 0.13)
-                    .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
-                    .rotationEffect(.degrees(-remaining * 6))
-                    .animation(.linear(duration: 1), value: remaining)
-                Circle().fill(Color.white).frame(width: side * 0.12, height: side * 0.12)
             }
-            .frame(width: side, height: side)
+            .frame(height: 4)
+            if breaks.allowSkip {
+                HStack(spacing: 6) {
+                    BreakButton(title: tr("+5 min", "+5 phút"), size: 12) { breaks.postpone(minutes: 5) }
+                    BreakButton(title: tr("Skip", "Bỏ qua"), quiet: true, size: 12, action: breaks.skip)
+                }
+            }
         }
+        .foregroundStyle(.white)
+        .padding(16)
+        .frame(width: 340)
+        .background(ZStack { BreakBackdrop(material: .hudWindow); Color.black.opacity(0.25) }.clipShape(shape))
+        .overlay(shape.strokeBorder(Color.white.opacity(0.14)))
+        .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+        .offset(y: shown ? 0 : 40)
+        .opacity(shown ? 1 : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .padding(18)
+        .onAppear { withAnimation(.spring(response: 0.6, dampingFraction: 0.85).delay(0.15)) { shown = true } }
     }
 }

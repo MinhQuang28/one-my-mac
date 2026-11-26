@@ -1,9 +1,19 @@
 import Foundation
 
-/// MCCS VCP feature codes. Only brightness is exposed in the MVP — contrast, volume and input source
-/// are deliberately absent so a bug in this layer cannot mute a monitor or switch it to a dead input.
-public enum VCPCode: UInt8, Sendable {
+/// MCCS VCP feature codes this app speaks.
+///
+/// Brightness is the only one written without the user asking for that exact thing. Contrast and
+/// volume are plain levels; `inputSource` is the dangerous one — a write to an input with nothing
+/// plugged in leaves the monitor showing "no signal" and out of reach of DDC, so the UI confirms it.
+public enum VCPCode: UInt8, Sendable, CaseIterable {
     case brightness = 0x10
+    case contrast = 0x12
+    case inputSource = 0x60
+    case volume = 0x62
+
+    /// False for codes whose value is a choice rather than a level. Their reply's "maximum" field
+    /// is not a range and is zero on many monitors.
+    public var isContinuous: Bool { self != .inputSource }
 }
 
 /// DDC/CI framing constants.
@@ -221,8 +231,9 @@ public enum VCPCodec {
         let maximum = UInt16(bytes[6]) << 8 | UInt16(bytes[7])
         let current = UInt16(bytes[8]) << 8 | UInt16(bytes[9])
         // A zero maximum makes every normalisation a division by zero, and is a reliable sign the
-        // monitor answered with garbage rather than a real feature description.
-        guard maximum != 0 else { throw DecodeError.zeroMaximum }
+        // monitor answered with garbage rather than a real feature description. Only for levels:
+        // a choice like the input source has no range to report.
+        guard maximum != 0 || !code.isContinuous else { throw DecodeError.zeroMaximum }
 
         return Reply(code: bytes[4], current: current, maximum: maximum, checksumValid: checksumValid)
     }

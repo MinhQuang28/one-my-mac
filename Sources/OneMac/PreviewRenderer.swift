@@ -1,3 +1,5 @@
+import ClipboardKit
+import EyeBreakKit
 import HardwareKit
 import HiDisplayFeature
 import MousseFeature
@@ -8,6 +10,8 @@ import SwiftUI
 /// to a PNG and exits — no menu-bar click or Screen Recording permission needed.
 /// `ONEMAC_PREVIEW_PANE=mouseGeneral|mouseButtons|mouseScroll|mouseDevices|mouseGestures|general`
 /// renders that settings-window page instead (`ONEMAC_PREVIEW_HEIGHT` sets its height, default 900).
+/// Debug builds only: `ONEMAC_PREVIEW_CLIPBOARD=1` renders the clipboard window with sample copies;
+/// `ONEMAC_PREVIEW_BREAK=dusk|breath|island|corner|notice` renders an eye-break look.
 @MainActor
 struct PreviewRenderer {
     let output: URL
@@ -20,7 +24,7 @@ struct PreviewRenderer {
     private static let panes: [String: SettingsPane] = [
         "mouseGeneral": .mouseGeneral, "mouseButtons": .mouseButtons, "mouseScroll": .mouseScroll,
         "mouseDevices": .mouseDevices, "mouseGestures": .mouseGestures, "general": .general,
-        "windows": .windows, "eyeBreaks": .eyeBreaks, "hiDPI": .hiDPI, "brightnessKeys": .brightnessKeys, "displayDiagnostics": .displayDiagnostics,
+        "windows": .windows, "eyeBreaks": .eyeBreaks, "clipboard": .clipboard, "hiDPI": .hiDPI, "brightnessKeys": .brightnessKeys, "displayDiagnostics": .displayDiagnostics,
     ]
 
     static var requested: PreviewRenderer? {
@@ -41,6 +45,20 @@ struct PreviewRenderer {
         Task {
             await HiDisplayModule.start()
             try? await Task.sleep(for: .seconds(2.5)) // let sensors, battery and display probes land
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["ONEMAC_PREVIEW_CLIPBOARD"] != nil {
+                let backdrop = LinearGradient(colors: [.blue, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                await renderInWindow(ClipboardPanelPreview.view().background(backdrop), size: ClipboardPanelPreview.size)
+                exit(0)
+            }
+            if let name = ProcessInfo.processInfo.environment["ONEMAC_PREVIEW_BREAK"], BreakStylePreview.names.contains(name) {
+                // On a desktop-like gradient: the real windows are transparent over whatever is open.
+                let backdrop = LinearGradient(colors: [.blue, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                await renderInWindow(BreakStylePreview.view(name).background(backdrop), size: BreakStylePreview.size(name),
+                                     settle: .seconds(3.5)) // the curtains bring their content in late
+                exit(0)
+            }
+            #endif
             if showFirstDisplay, let display = DisplayDirectory.shared.displays.first {
                 await renderInWindow(SettingsWindow.detail(for: .display(display.id)),
                                      size: NSSize(width: 700, height: paneHeight))
@@ -60,7 +78,7 @@ struct PreviewRenderer {
 
     /// Settings pages scroll, and `ImageRenderer` draws nothing inside a ScrollView — so they are
     /// laid out in a real (off-screen) window and captured from its backing store instead.
-    private func renderInWindow(_ view: some View, size: NSSize) async {
+    private func renderInWindow(_ view: some View, size: NSSize, settle: Duration = .seconds(1)) async {
         let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .dark))
@@ -69,7 +87,7 @@ struct PreviewRenderer {
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = host
         window.orderFrontRegardless()
-        try? await Task.sleep(for: .seconds(1)) // first layout pass + async state (.task, timelines)
+        try? await Task.sleep(for: settle) // first layout pass + async state (.task, timelines)
         let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds)
         if let rep { host.cacheDisplay(in: host.bounds, to: rep) }
         write(rep)

@@ -1,3 +1,4 @@
+import ClipboardKit
 import EyeBreakKit
 import HardwareKit
 import HiDisplayFeature
@@ -51,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SystemUsageMonitor.shared.start()
         FanController.shared.start()
         EyeBreaks.shared.start()
+        ClipboardHistory.shared.start()
         // Everything that may ask for Accessibility waits for the stale grants to be reset first.
         AccessibilityRecovery.clearStaleGrants {
             MouseModule.start()
@@ -70,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MouseModule.stop()
         WindowSnapping.shared.stop()
         EyeBreaks.shared.stop()
+        ClipboardHistory.shared.stop()
         Task {
             await HiDisplayModule.stop()
             reply(sender)

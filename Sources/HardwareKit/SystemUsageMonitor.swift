@@ -1,7 +1,8 @@
 import AppKit
 import Combine
 
-/// Publishes CPU / RAM / GPU load and owns the "show on the menu bar" switches.
+/// Publishes CPU / RAM / GPU load, network speed and free disk space, and owns the "show on the
+/// menu bar" switches.
 /// Samples only while the panel is open or a menu-bar switch is on — otherwise no timer runs.
 @MainActor
 public final class SystemUsageMonitor: ObservableObject {
@@ -12,6 +13,8 @@ public final class SystemUsageMonitor: ObservableObject {
         static let temperature = "menubar_show_temperature"
         static let cpuRAM = "menubar_show_cpu_ram"
         static let gpu = "menubar_show_gpu"
+        static let network = "menubar_show_network"
+        static let disk = "menubar_show_disk"
     }
 
     @Published public var showTemperature: Bool {
@@ -25,6 +28,12 @@ public final class SystemUsageMonitor: ObservableObject {
     }
     @Published public var showGPU: Bool {
         didSet { UserDefaults.standard.set(showGPU, forKey: Key.gpu); syncPolling() }
+    }
+    @Published public var showNetwork: Bool {
+        didSet { UserDefaults.standard.set(showNetwork, forKey: Key.network); syncPolling() }
+    }
+    @Published public var showDisk: Bool {
+        didSet { UserDefaults.standard.set(showDisk, forKey: Key.disk); syncPolling() }
     }
     @Published public private(set) var usage: SystemUsage = .empty
     /// Becomes true the first time an accelerator reports utilisation.
@@ -43,6 +52,8 @@ public final class SystemUsageMonitor: ObservableObject {
         showTemperature = defaults.bool(forKey: Key.temperature)
         showCPURAM = defaults.bool(forKey: Key.cpuRAM)
         showGPU = defaults.bool(forKey: Key.gpu)
+        showNetwork = defaults.bool(forKey: Key.network)
+        showDisk = defaults.bool(forKey: Key.disk)
     }
 
     public func start() {
@@ -72,14 +83,29 @@ public final class SystemUsageMonitor: ObservableObject {
             parts.append("CPU \(Self.percent(usage.cpu)) · RAM \(Self.percent(usage.ram))")
         }
         if showGPU, hasGPU { parts.append("GPU \(Self.percent(usage.gpu))") }
+        if showNetwork { parts.append(Self.network(down: usage.networkDown, up: usage.networkUp)) }
+        if showDisk { parts.append("SSD \(Self.disk(usage.diskFree))") }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// Download then upload speed per second, e.g. `↓1.2M ↑87K`.
+    public static func network(down: Double?, up: Double?) -> String {
+        func text(_ value: Double?) -> String { value.map(NetworkDiskReader.compact(bytes:)) ?? "—" }
+        return "↓\(text(down)) ↑\(text(up))"
+    }
+
+    /// Free space in whole decimal gigabytes, the unit Finder uses.
+    public static func disk(_ bytes: Int64?) -> String {
+        bytes.map { "\(Int((Double($0) / 1_000_000_000).rounded())) GB" } ?? "—"
     }
 
     public static func percent(_ value: Double?) -> String {
         value.map { "\(Int($0))%" } ?? "—"
     }
 
-    private var shouldPoll: Bool { started && (isVisible || showCPURAM || showGPU) }
+    private var shouldPoll: Bool {
+        started && (isVisible || showCPURAM || showGPU || showNetwork || showDisk)
+    }
 
     private func syncPolling() {
         guard shouldPoll else {
@@ -115,16 +141,23 @@ public final class SystemUsageMonitor: ObservableObject {
         sampling = true
         // The GPU lookup walks the IORegistry; skip it unless someone is looking at the number.
         let includeGPU = isVisible || showGPU
+        let includeNetwork = isVisible || showNetwork
+        let includeDisk = isVisible || showDisk
         queue.async { [weak self, sampler] in
-            let reading = sampler.sample(includeGPU: includeGPU)
+            let reading = sampler.sample(
+                includeGPU: includeGPU, includeNetwork: includeNetwork, includeDisk: includeDisk)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.sampling = false
                 // Whole percents only: the menu bar must not redraw for a change nobody can see.
                 // A baseline reading has no CPU value and a skipped GPU lookup none either: keep the last.
-                let usage = SystemUsage(cpu: reading.cpu?.rounded() ?? self.usage.cpu,
+                var usage = SystemUsage(cpu: reading.cpu?.rounded() ?? self.usage.cpu,
                                         ram: reading.ram?.rounded() ?? self.usage.ram,
                                         gpu: includeGPU ? reading.gpu?.rounded() : self.usage.gpu)
+                // Skipped readings keep the last value too, so a hidden number never republishes.
+                usage.networkDown = includeNetwork ? reading.networkDown ?? self.usage.networkDown : self.usage.networkDown
+                usage.networkUp = includeNetwork ? reading.networkUp ?? self.usage.networkUp : self.usage.networkUp
+                usage.diskFree = includeDisk ? reading.diskFree : self.usage.diskFree
                 if usage.gpu != nil, !self.hasGPU { self.hasGPU = true }
                 if self.usage != usage { self.usage = usage }
             }

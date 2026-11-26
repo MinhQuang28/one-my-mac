@@ -150,3 +150,27 @@ final class SystemUsageSamplerTests: XCTestCase {
         XCTAssertNil(second.gpu)
     }
 }
+
+final class NetworkDiskReaderTests: XCTestCase {
+    func testRateIsBytesPerSecondAndSurvivesCounterWrap() {
+        XCTAssertEqual(NetworkDiskReader.rate(from: 1_000, to: 6_000, elapsed: 2.5)!, 2_000, accuracy: 0.001)
+        XCTAssertEqual(NetworkDiskReader.rate(from: UInt32.max - 99, to: 400, elapsed: 1)!, 500, accuracy: 0.001)
+        XCTAssertNil(NetworkDiskReader.rate(from: 0, to: 10, elapsed: 0))
+    }
+
+    func testCompactRateStaysWithinFourCharacters() {
+        XCTAssertEqual(NetworkDiskReader.compact(bytes: 0), "0K")
+        XCTAssertEqual(NetworkDiskReader.compact(bytes: 87_400), "87K")
+        XCTAssertEqual(NetworkDiskReader.compact(bytes: 999_600), "1.0M")
+        XCTAssertEqual(NetworkDiskReader.compact(bytes: 1_240_000), "1.2M")
+        XCTAssertEqual(NetworkDiskReader.compact(bytes: 24_400_000), "24M")
+        XCTAssertEqual(NetworkDiskReader.compact(bytes: 1_250_000_000), "1.2G")
+    }
+
+    @MainActor
+    func testReadsThisMachineAndFormatsForTheMenuBar() {
+        XCTAssertNotNil(NetworkDiskReader.diskFreeBytes())
+        XCTAssertEqual(SystemUsageMonitor.disk(256_400_000_000), "256 GB")
+        XCTAssertEqual(SystemUsageMonitor.network(down: 1_240_000, up: nil), "↓1.2M ↑—")
+    }
+}

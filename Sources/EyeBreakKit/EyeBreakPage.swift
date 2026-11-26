@@ -42,13 +42,13 @@ private struct PauseControl: View {
 
     var body: some View {
         if breaks.isPaused {
-            Button(tr("Resume", "Tiếp tục"), action: breaks.resumeFromPause).controlSize(.small)
+            Button(tr("Resume", "Tiếp tục"), action: breaks.resumeFromPause).pillControl()
         } else {
             Menu(tr("Pause", "Tạm dừng")) {
                 Button(tr("For 1 hour", "Trong 1 giờ")) { breaks.pause(hours: 1) }
                 Button(tr("Until tomorrow", "Tới ngày mai"), action: breaks.pauseUntilTomorrow)
             }
-            .controlSize(.small).fixedSize()
+            .pillMenu()
         }
     }
 }
@@ -68,7 +68,7 @@ public struct EyeBreakCard: View {
                 Spacer()
                 if breaks.enabled {
                     PauseControl(breaks: breaks)
-                    Button(tr("Break now", "Nghỉ ngay"), action: breaks.takeBreakNow).controlSize(.small)
+                    Button(tr("Break now", "Nghỉ ngay"), action: breaks.takeBreakNow).pillControl()
                 }
             }
         }
@@ -88,7 +88,7 @@ public struct EyeBreakPage: View {
                 SettingsRow(tr("Try it", "Xem thử"),
                             detail: tr("Starts a break right away.", "Bắt đầu một lần nghỉ ngay bây giờ."), icon: "play.circle") {
                     Button(tr("Break now", "Nghỉ ngay"), action: breaks.takeBreakNow)
-                        .controlSize(.small).disabled(!breaks.enabled)
+                        .pillControl().disabled(!breaks.enabled)
                 }
                 SettingsRow(tr("Pause", "Tạm dừng"),
                             detail: tr("No breaks for an hour or for the rest of today.",
@@ -115,18 +115,19 @@ public struct EyeBreakPage: View {
             }
             SettingsSection(tr("Behaviour", "Cách nhắc")) {
                 SettingsStack(tr("Break style", "Kiểu nghỉ"),
-                              detail: tr("Full screen covers every display. Small card sits at the top centre and leaves the screen usable.",
-                                         "Toàn màn hình che mọi màn hình. Thẻ nhỏ nằm giữa phía trên và vẫn để bạn dùng máy.")) {
-                    ChipPicker([(false, tr("Full screen", "Toàn màn hình")), (true, tr("Small card", "Thẻ nhỏ"))],
-                               selection: $breaks.compact)
+                              detail: tr("Dusk and Breath dim every display slowly. Island and Corner card leave the screen usable. Rotate uses a different one each break.",
+                                         "Hoàng hôn và Nhịp thở làm tối dần mọi màn hình. Đảo nổi và Thẻ góc vẫn để bạn dùng máy. Tự đổi dùng một kiểu khác cho mỗi lần nghỉ.")) {
+                    ChipPicker([(BreakStyleChoice.rotate, tr("Rotate", "Tự đổi"))]
+                                   + BreakStyle.allCases.map { (BreakStyleChoice.fixed($0), $0.title) },
+                               selection: $breaks.style)
                 }
                 SettingsRow(tr("Heads-up before a break", "Báo trước khi nghỉ"),
-                            detail: tr("A small card with a countdown 30 seconds ahead; start early or push the break back from it.",
-                                       "Một thẻ nhỏ đếm ngược trước 30 giây; có thể nghỉ luôn hoặc lùi giờ nghỉ ngay trên thẻ."),
+                            detail: tr("A small pill under the menu bar counts down 30 seconds ahead; start early or push the break back from it.",
+                                       "Một viên nhỏ dưới thanh menu đếm ngược trước 30 giây; có thể nghỉ luôn hoặc lùi giờ nghỉ ngay trên đó."),
                             icon: "bell", isOn: $breaks.headsUp)
                 SettingsRow(tr("Wait for videos and calls", "Chờ khi đang xem video hoặc họp"),
-                            detail: tr("Holds the break while an app keeps the display on or a camera or microphone is in use. After 15 minutes of waiting it shows as the small card instead.",
-                                       "Tạm hoãn khi có ứng dụng giữ màn hình luôn sáng hoặc camera, micro đang được dùng. Chờ quá 15 phút thì hiện bằng thẻ nhỏ."),
+                            detail: tr("Holds the break while an app keeps the display on or a camera or microphone is in use. After 15 minutes of waiting the break never covers the screen.",
+                                       "Tạm hoãn khi có ứng dụng giữ màn hình luôn sáng hoặc camera, micro đang được dùng. Chờ quá 15 phút thì lần nghỉ không che màn hình nữa."),
                             icon: "play.rectangle", isOn: $breaks.deferForMedia)
                 SettingsRow(tr("Allow skipping", "Cho phép bỏ qua"),
                             detail: tr("Turn off to make every break run to the end. Pressing Esc 3 times still closes a full-screen break.",

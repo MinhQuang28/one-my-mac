@@ -1,13 +1,20 @@
 import AppKit
 import SwiftUI
 
-/// The windows of an eye break: a curtain over every display or a small card, and a heads-up before it.
+/// The windows of an eye break: a curtain over every display, a pill under the menu bar or a card in
+/// the corner, and a heads-up pill before it.
 /// They never activate OneMac, so the app being used keeps its focus and comes back untouched.
 @MainActor
 final class BreakOverlay {
     private var curtains: [NSPanel] = []
     private var notice: NSPanel?
     private var coversScreens = false
+    private var curtainStyle = BreakStyle.dusk
+    /// Slow enough that the screen dims rather than switches.
+    private static let curtainFade: TimeInterval = 2.4
+    /// Not fully opaque: a hint of the desktop stays visible through the blur, so the curtain
+    /// reads as a veil over the work rather than a wall in front of it.
+    private static let curtainOpacity: CGFloat = 0.94
     private var screenObserver: NSObjectProtocol?
     private let emergencyExit: EmergencyExit
 
@@ -21,49 +28,60 @@ final class BreakOverlay {
         }
     }
 
-    /// Shows the break: a small card at the top centre when `compact`, else a curtain on every display.
-    func showBreak(compact: Bool) {
+    /// Shows the break in `style`: a curtain on every display, or one small window on the screen in use.
+    func showBreak(style: BreakStyle) {
         guard curtains.isEmpty else { return }
         closeNotice()
-        if compact {
-            guard let panel = Self.cardPanel(BreakCompactView()) else { return }
-            panel.orderFrontRegardless()
-            curtains = [panel]
-            return
+        switch style {
+        case .dusk, .breath:
+            coversScreens = true
+            curtainStyle = style
+            emergencyExit.arm()
+            curtains = Self.curtainPanels(style: style, fadeIn: true)
+        case .island:
+            curtains = [Self.smallPanel(BreakIslandView(), size: BreakCardMetrics.island, corner: false)].compactMap { $0 }
+        case .corner:
+            curtains = [Self.smallPanel(BreakCornerView(), size: BreakCardMetrics.corner, corner: true)].compactMap { $0 }
         }
-        coversScreens = true
-        emergencyExit.arm()
-        curtains = Self.curtainPanels(fadeIn: true)
     }
 
     private func rebuildCurtains() {
         guard coversScreens else { return }
         curtains.forEach { $0.close() }
-        curtains = Self.curtainPanels(fadeIn: false)
+        curtains = Self.curtainPanels(style: curtainStyle, fadeIn: false)
     }
 
-    private static func curtainPanels(fadeIn: Bool) -> [NSPanel] {
+    private static func curtainPanels(style: BreakStyle, fadeIn: Bool) -> [NSPanel] {
         NSScreen.screens.map { screen in
-            let panel = panel(frame: screen.frame, content: BreakCurtainView())
-            if fadeIn { panel.alphaValue = 0 }
+            let panel = panel(frame: screen.frame, content: BreakCurtainView(style: style))
+            panel.alphaValue = fadeIn ? 0 : curtainOpacity
             panel.orderFrontRegardless()
-            if fadeIn { panel.animator().alphaValue = 1 }
+            if fadeIn {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = curtainFade
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    panel.animator().alphaValue = curtainOpacity
+                }
+            }
             return panel
         }
     }
 
     func showNotice() {
-        guard notice == nil, curtains.isEmpty, let panel = Self.cardPanel(BreakNoticeView()) else { return }
-        panel.orderFrontRegardless()
+        guard notice == nil, curtains.isEmpty,
+              let panel = Self.smallPanel(BreakNoticeView(), size: BreakCardMetrics.island, corner: false) else { return }
         notice = panel
     }
 
-    /// A card-sized panel just under the menu bar, centred on the screen being used.
-    private static func cardPanel(_ content: some View) -> NSPanel? {
+    /// A small window on the screen being used: centred under the menu bar, or in the bottom-right
+    /// corner. Its content animates itself in.
+    private static func smallPanel(_ content: some View, size: NSSize, corner: Bool) -> NSPanel? {
         guard let area = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame else { return nil }
-        let size = BreakCardMetrics.size
-        return panel(frame: NSRect(x: area.midX - size.width / 2, y: area.maxY - size.height - 12,
-                                   width: size.width, height: size.height), content: content)
+        let origin = corner ? NSPoint(x: area.maxX - size.width, y: area.minY)
+                            : NSPoint(x: area.midX - size.width / 2, y: area.maxY - size.height)
+        let panel = panel(frame: NSRect(origin: origin, size: size), content: content)
+        panel.orderFrontRegardless()
+        return panel
     }
 
     func hide() {

@@ -34,8 +34,9 @@ public actor DDCCommandQueue {
     private let readTimeout: Duration
     private let maxRetries: Int
 
-    /// Latest requested raw value, overwritten rather than queued — this is the coalescing.
-    private var pendingValue: UInt16?
+    /// Latest requested raw value per feature, overwritten rather than queued — this is the
+    /// coalescing. In arrival order, so a volume change does not jump ahead of a brightness one.
+    private var pendingWrites: [(code: VCPCode, value: UInt16)] = []
     private var isDraining = false
     private var invalidated = false
 
@@ -93,7 +94,7 @@ public actor DDCCommandQueue {
     /// addressed to the previous connection.
     public func invalidate() {
         invalidated = true
-        pendingValue = nil
+        pendingWrites.removeAll()
     }
 
     public var isInvalidated: Bool { invalidated }
@@ -101,8 +102,17 @@ public actor DDCCommandQueue {
     /// Requests a raw brightness value. Returns as soon as the value is recorded — it does not wait
     /// for the wire, so a caller on the main actor never blocks on I2C latency.
     public func setBrightness(raw value: UInt16) {
+        set(.brightness, raw: value)
+    }
+
+    /// Requests a raw value for any feature, with the same coalescing as brightness.
+    public func set(_ code: VCPCode, raw value: UInt16) {
         guard !invalidated else { return }
-        pendingValue = value
+        if let index = pendingWrites.firstIndex(where: { $0.code == code }) {
+            pendingWrites[index].value = value
+        } else {
+            pendingWrites.append((code, value))
+        }
         guard !isDraining else { return }
         isDraining = true
         Task { await drain() }
@@ -142,12 +152,12 @@ public actor DDCCommandQueue {
     /// Sends every pending value in order, spaced by `writeInterval`, until nothing new arrives.
     private func drain() async {
         defer { isDraining = false }
-        while !invalidated, let value = pendingValue {
-            pendingValue = nil
+        while !invalidated, !pendingWrites.isEmpty {
+            let (code, value) = pendingWrites.removeFirst()
             await acquireBus()
             do {
                 try await transport.write(
-                    VCPCodec.setRequest(code: .brightness, value: value, shape: frameShape))
+                    VCPCodec.setRequest(code: code, value: value, shape: frameShape))
                 consecutiveWriteFailures = 0
                 hasWrittenSuccessfully = true
             } catch {
@@ -164,7 +174,7 @@ public actor DDCCommandQueue {
             // `||` rather than `&&` is deliberate and load-bearing: the sleep must also run when
             // this looks like the last write, because a new drain can start the moment this one
             // exits and its first frame still needs the full spacing from ours.
-            if pendingValue != nil || !invalidated {
+            if !pendingWrites.isEmpty || !invalidated {
                 try? await Task.sleep(for: writeInterval)
             }
             releaseBus()
@@ -176,13 +186,20 @@ public actor DDCCommandQueue {
     /// Retries only on transient errors — a monitor that answered "unsupported" will keep saying so,
     /// and hammering it delays every other display sharing the queue's time.
     public func readBrightness(tolerateChecksumMismatch: Bool = false) async throws -> VCPCodec.Reply {
+        try await read(.brightness, tolerateChecksumMismatch: tolerateChecksumMismatch)
+    }
+
+    /// Reads any feature's current and maximum value, with the same retries as brightness.
+    public func read(
+        _ code: VCPCode, tolerateChecksumMismatch: Bool = false
+    ) async throws -> VCPCodec.Reply {
         guard !invalidated else { throw DDCError.disconnected }
 
         var lastError: DDCError = .timeout
         for attempt in 0...maxRetries {
             if invalidated { throw DDCError.disconnected }
             do {
-                return try await performRead(tolerateChecksumMismatch: tolerateChecksumMismatch)
+                return try await performRead(code, tolerateChecksumMismatch: tolerateChecksumMismatch)
             } catch let error as DDCError {
                 lastError = error
                 guard error.isRetryable else { throw error }
@@ -204,9 +221,12 @@ public actor DDCCommandQueue {
     /// second attempt the app reports "no DDC" on any link whose driver disagrees with the shape it
     /// happens to be holding — which is how toggling one OSD setting on a VX2780-2K turned working DDC
     /// into none.
-    private func performRead(tolerateChecksumMismatch: Bool) async throws -> VCPCodec.Reply {
+    private func performRead(
+        _ code: VCPCode, tolerateChecksumMismatch: Bool
+    ) async throws -> VCPCodec.Reply {
         do {
-            return try await read(shape: frameShape, tolerateChecksumMismatch: tolerateChecksumMismatch)
+            return try await read(
+                code, shape: frameShape, tolerateChecksumMismatch: tolerateChecksumMismatch)
         } catch DDCError.decode(.nullMessage) {
             let alternative: DDC.FrameShape =
                 frameShape == .withHostAddress ? .withoutHostAddress : .withHostAddress
@@ -215,7 +235,7 @@ public actor DDCCommandQueue {
             try? await Task.sleep(for: DDC.writeInterval)
 
             let reply = try await read(
-                shape: alternative, tolerateChecksumMismatch: tolerateChecksumMismatch)
+                code, shape: alternative, tolerateChecksumMismatch: tolerateChecksumMismatch)
             frameShape = alternative
             Log.ddcBrightness.notice(
                 "\(self.label, privacy: .public): switched to frame shape \(String(describing: alternative), privacy: .public)")
@@ -224,7 +244,7 @@ public actor DDCCommandQueue {
     }
 
     private func read(
-        shape: DDC.FrameShape, tolerateChecksumMismatch: Bool
+        _ code: VCPCode, shape: DDC.FrameShape, tolerateChecksumMismatch: Bool
     ) async throws -> VCPCodec.Reply {
         // The whole request → delay → reply sequence owns the wire. Without this, a drain loop
         // started mid-transaction slips a Set frame into the reply-delay window, and the monitor
@@ -233,7 +253,7 @@ public actor DDCCommandQueue {
         defer { releaseBus() }
         guard !invalidated else { throw DDCError.disconnected }
 
-        try await transport.write(VCPCodec.getRequest(code: .brightness, shape: shape))
+        try await transport.write(VCPCodec.getRequest(code: code, shape: shape))
         try await Task.sleep(for: DDC.replyDelay)
 
         // Bound the read itself: a monitor that never answers must not hold the queue forever.
@@ -242,7 +262,7 @@ public actor DDCCommandQueue {
         }
         do {
             return try VCPCodec.decodeReply(
-                bytes, expecting: .brightness, tolerateChecksumMismatch: tolerateChecksumMismatch)
+                bytes, expecting: code, tolerateChecksumMismatch: tolerateChecksumMismatch)
         } catch let error as VCPCodec.DecodeError {
             throw DDCError.decode(error)
         }

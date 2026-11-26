@@ -38,8 +38,9 @@ final class BrightnessOSD {
     private let model = OSDModel()
 
     /// Shows the indicator on `display`, or moves it there if already visible.
-    func show(value: Float, display: DisplayDevice) {
+    func show(value: Float, display: DisplayDevice, icon: String = "sun.max") {
         model.value = min(max(value, 0), 1)
+        model.icon = icon
 
         let panel = panel ?? makePanel()
         self.panel = panel
@@ -147,6 +148,8 @@ final class BrightnessOSD {
 @MainActor
 private final class OSDModel: ObservableObject {
     @Published var value: Float = 1
+    /// SF Symbol for what is being adjusted: the sun for brightness, a speaker for volume.
+    @Published var icon = "sun.max"
     /// Set only when the panel could not be placed on the display it describes.
     @Published var displayName: String?
 }
@@ -188,7 +191,7 @@ private struct OSDView: View {
     var body: some View {
         VStack(spacing: 4) {
             HStack(spacing: 14) {
-                Image(systemName: "sun.max")
+                Image(systemName: model.icon)
                     .font(.system(size: 19, weight: .regular))
                     .symbolRenderingMode(.monochrome)
                     .frame(width: 22)

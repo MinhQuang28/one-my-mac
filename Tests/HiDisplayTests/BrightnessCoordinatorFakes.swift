@@ -82,6 +82,16 @@ actor FakeDDCController: DDCControlling {
     }
 
     func invalidateAll(except liveKeys: Set<String>) async {}
+
+    private(set) var featureWrites: [(key: String, code: VCPCode, raw: UInt16)] = []
+
+    func readFeature(_ code: VCPCode, display: DisplayDevice) async throws -> VCPCodec.Reply {
+        VCPCodec.Reply(code: code.rawValue, current: 50, maximum: 100, checksumValid: true)
+    }
+
+    func writeFeature(_ code: VCPCode, raw: UInt16, display: DisplayDevice) async throws {
+        featureWrites.append((display.id, code, raw))
+    }
 }
 
 /// Stand-in for both `GammaBrightnessController` and `ShadeBrightnessController`. One fake covers

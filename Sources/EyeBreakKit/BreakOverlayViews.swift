@@ -1,106 +1,121 @@
 import OneMacUI
 import SwiftUI
 
-/// What to do with the eyes during a break; a different one each time.
-enum BreakTip: CaseIterable {
-    case lookFar, blink, shoulders, water
+/// The full-screen break, shown on every display, in the look this break uses.
+struct BreakCurtainView: View {
+    let style: BreakStyle
 
-    static func forBreak(_ number: Int) -> BreakTip { allCases[abs(number) % allCases.count] }
-
-    var icon: String {
-        switch self {
-        case .lookFar: return "binoculars.fill"
-        case .blink: return "eye.fill"
-        case .shoulders: return "figure.cooldown"
-        case .water: return "drop.fill"
+    var body: some View {
+        Group {
+            if style == .breath { BreakBreathView() } else { BreakDuskView() }
         }
+        .foregroundStyle(.white)
+        .ignoresSafeArea()
     }
+}
 
-    var title: String {
-        switch self {
-        case .lookFar: return tr("Look into the distance", "Nhìn ra xa")
-        case .blink: return tr("Blink slowly", "Chớp mắt thật chậm")
-        case .shoulders: return tr("Loosen your shoulders", "Thả lỏng vai gáy")
-        case .water: return tr("Have some water", "Uống một ngụm nước")
-        }
+/// Everything on a curtain arrives late and softly: the window itself fades in first (see
+/// `BreakOverlay`), then the content rises into place.
+private struct LateArrival: ViewModifier {
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown ? 0 : 14)
+            .onAppear { withAnimation(.easeOut(duration: 1.4).delay(1.0)) { shown = true } }
     }
+}
 
-    var detail: String {
-        switch self {
-        case .lookFar: return tr("Pick something at least 6 metres away and rest your eyes on it.",
-                                 "Chọn một vật cách ít nhất 6 mét và để mắt nghỉ ở đó.")
-        case .blink: return tr("Ten slow, full blinks bring moisture back to dry eyes.",
-                               "Mười lần chớp chậm, khép kín mắt giúp mắt bớt khô.")
-        case .shoulders: return tr("Roll your shoulders back and look away from the screen.",
-                                   "Xoay vai ra sau vài vòng và rời mắt khỏi màn hình.")
-        case .water: return tr("Take a sip while your eyes rest on something far away.",
-                               "Uống một ngụm trong lúc mắt nhìn về phía xa.")
+/// Postpone and skip, and the way out that always works.
+private struct CurtainControls: View {
+    @ObservedObject var breaks: EyeBreaks
+
+    var body: some View {
+        VStack(spacing: 18) {
+            if breaks.allowSkip {
+                HStack(spacing: Gap.sm) {
+                    BreakButton(title: tr("5 more minutes", "Hoãn 5 phút")) { breaks.postpone(minutes: 5) }
+                    BreakButton(title: tr("Skip", "Bỏ qua"), quiet: true, action: breaks.skip)
+                }
+            }
+            Text(tr("Need the screen right now? Press Esc \(EmergencyExit.presses) times.",
+                    "Cần dùng máy gấp? Nhấn Esc \(EmergencyExit.presses) lần."))
+                .font(.system(size: 12)).opacity(0.45)
         }
     }
 }
 
-/// Full-screen curtain shown on every display during a break.
-struct BreakCurtainView: View {
+/// Dusk: a blurred, warm-dark screen, a thin amber ring with the seconds, and one thing to do.
+private struct BreakDuskView: View {
     @ObservedObject private var breaks = EyeBreaks.shared
 
-    private var remaining: TimeInterval {
-        if case let .onBreak(remaining) = breaks.phase { return remaining }
-        return 0
+    var body: some View {
+        let tip = breaks.tip
+        ZStack {
+            BreakBackdrop()
+            Color(red: 0.11, green: 0.08, blue: 0.13).opacity(0.62)
+            // A glow from below the bottom edge, like the last light of the day.
+            GeometryReader { proxy in
+                RadialGradient(colors: [BreakPalette.amber.opacity(0.3), .clear],
+                               center: UnitPoint(x: 0.5, y: 1.1), startRadius: 0, endRadius: proxy.size.height * 0.75)
+            }
+            VStack(spacing: 26) {
+                ZStack {
+                    BreakRing(progress: breaks.breakProgress, lineWidth: 5, tint: BreakPalette.amber)
+                    Text(breakClock(breaks.breakRemaining))
+                        .font(.system(size: 54, weight: .semibold, design: .rounded))
+                        .monospacedDigit().contentTransition(.numericText())
+                }
+                .frame(width: 160, height: 160)
+                VStack(spacing: 10) {
+                    Text(tip.title).font(.system(size: 34, weight: .semibold))
+                    Text(tip.detail).font(.system(size: 17)).opacity(0.78)
+                        .multilineTextAlignment(.center).frame(maxWidth: 480)
+                }
+                CurtainControls(breaks: breaks)
+            }
+            .modifier(LateArrival())
+        }
     }
+}
+
+/// Breath: an orb that swells for four seconds and shrinks for four, and almost no text.
+private struct BreakBreathView: View {
+    @ObservedObject private var breaks = EyeBreaks.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let cycle: TimeInterval = 8
 
     var body: some View {
-        let tip = BreakTip.forBreak(breaks.breakCount)
         ZStack {
-            Color.black.opacity(0.6)
-            VStack(spacing: 28) {
-                ZStack {
-                    Circle().stroke(Color.white.opacity(0.15), lineWidth: 6)
-                    Circle().trim(from: 0, to: min(1, remaining / Double(max(breaks.breakSeconds, 1))))
-                        .stroke(Color.teal, style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                        .animation(.linear(duration: 1), value: remaining)
-                    VStack(spacing: 6) {
-                        Image(systemName: tip.icon).font(.system(size: 30, weight: .medium)).foregroundStyle(.teal)
-                        Text(clock(remaining)).font(.system(size: 34, weight: .semibold, design: .rounded))
-                            .monospacedDigit().contentTransition(.numericText())
+            BreakBackdrop()
+            Color(red: 0.04, green: 0.12, blue: 0.13).opacity(0.7)
+            VStack(spacing: 30) {
+                TimelineView(.animation(paused: reduceMotion)) { timeline in
+                    let time = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: Self.cycle)
+                    // 0 at the start of the in-breath, 1 at its top, back to 0 at the end of the out-breath.
+                    let swell = reduceMotion ? 0.7 : 0.5 - 0.5 * cos(2 * .pi * time / Self.cycle)
+                    VStack(spacing: 30) {
+                        orb.scaleEffect(0.62 + 0.38 * swell).frame(width: 210, height: 210)
+                        Text(reduceMotion ? tr("Breathe slowly", "Thở thật chậm")
+                             : time < Self.cycle / 2 ? tr("Breathe in", "Hít vào") : tr("Breathe out", "Thở ra"))
+                            .font(.system(size: 28, weight: .medium))
                     }
                 }
-                .frame(width: 170, height: 170)
-                VStack(spacing: 8) {
-                    Text(tip.title).font(.system(size: 30, weight: .semibold))
-                    Text(tip.detail).font(.system(size: 16)).foregroundStyle(.white.opacity(0.75))
-                        .multilineTextAlignment(.center).frame(maxWidth: 460)
-                }
-                if breaks.allowSkip {
-                    HStack(spacing: Gap.md) {
-                        curtainButton(tr("5 more minutes", "Hoãn 5 phút")) { breaks.postpone(minutes: 5) }
-                        curtainButton(tr("Skip", "Bỏ qua"), action: breaks.skip)
-                    }
-                    .padding(.top, 4)
-                }
-                Text(tr("Need the screen right now? Press Esc \(EmergencyExit.presses) times.",
-                        "Cần dùng máy gấp? Nhấn Esc \(EmergencyExit.presses) lần."))
-                    .font(.system(size: 12)).foregroundStyle(.white.opacity(0.45))
+                Text(tr("\(breakClock(breaks.breakRemaining)) s left · \(breaks.tip.title.lowercased())",
+                        "còn \(breakClock(breaks.breakRemaining)) giây · \(breaks.tip.title.lowercased())"))
+                    .font(.system(size: 15)).monospacedDigit().opacity(0.6)
+                CurtainControls(breaks: breaks)
             }
-            .foregroundStyle(.white)
-            .shadow(color: .black.opacity(0.6), radius: 5) // keeps the text clear over bright windows
+            .modifier(LateArrival())
         }
-        .ignoresSafeArea()
     }
 
-    private func curtainButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).font(.system(size: 14, weight: .medium))
-                .padding(.horizontal, 18).padding(.vertical, 9)
-                .background(Capsule().fill(Color.white.opacity(0.16)))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .focusEffectDisabled()
-    }
-
-    private func clock(_ seconds: TimeInterval) -> String {
-        let s = Int(seconds.rounded(.up))
-        return s >= 60 ? String(format: "%d:%02d", s / 60, s % 60) : "\(s)"
+    private var orb: some View {
+        Circle()
+            .fill(RadialGradient(colors: [Color(red: 0.63, green: 0.94, blue: 0.89),
+                                          BreakPalette.teal.opacity(0.55), BreakPalette.teal.opacity(0.12)],
+                                 center: UnitPoint(x: 0.4, y: 0.35), startRadius: 0, endRadius: 120))
+            .shadow(color: BreakPalette.teal.opacity(0.45), radius: 50)
     }
 }

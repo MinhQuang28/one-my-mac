@@ -32,8 +32,8 @@ struct ChargeLimitSection: View {
                     let selected = chargeLimit.limit == level
                     Button { chargeLimit.setLimit(level) } label: {
                         Text("\(level)%\(level == 80 ? tr(" (Standard)", " (Chuẩn)") : "")")
-                            .font(.system(size: FS.caption, weight: selected ? .semibold : .medium))
-                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .font(.system(size: FS.label, weight: selected ? .semibold : .medium))
+                            .padding(.horizontal, 10).padding(.vertical, 5)
                             .background(Capsule().fill(selected ? Color.accentColor : Color.tileFill))
                             .foregroundStyle(selected ? Color.white : Color.primary)
                             .contentShape(Capsule())

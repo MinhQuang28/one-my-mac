@@ -19,7 +19,7 @@ public struct DisplayCards: View {
                 CardHeader(icon: "rectangle.expand.vertical", tint: .purple, title: tr("HiDPI for external displays", "HiDPI cho màn ngoài"),
                            subtitle: tr("Add Retina resolutions to 1080p / 1440p monitors",
                                         "Thêm độ phân giải Retina cho màn 1080p / 1440p")) {
-                    Button(tr("Open…", "Mở…")) { Navigator.shared.open(.hiDPI) }.controlSize(.small)
+                    Button(tr("Open…", "Mở…")) { Navigator.shared.open(.hiDPI) }.pillControl()
                 }
                 HStack {
                     if model.brightnessManagedDisplays.count > 1 {
@@ -65,6 +65,13 @@ struct DisplayCard: View {
                                    set: { model.setBrightness(Float($0), for: display) }),
                     icon: "sun.max.fill",
                     label: tr("\(display.name) brightness", "Độ sáng \(display.name)"))
+                if let volume = model.extras[display.id]?.volume {
+                    CapsuleSlider(
+                        value: Binding(get: { Double(volume.value) },
+                                       set: { model.setVolume(Float($0), for: display) }),
+                        icon: "speaker.wave.2.fill",
+                        label: tr("\(display.name) volume", "Âm lượng \(display.name)"))
+                }
             } else if phase == .probing {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
@@ -90,6 +97,8 @@ struct DisplayCard: View {
                 }
             }
         }
+        // Keyed on DDC so the read happens once the probe has found it, not before.
+        .task(id: model.brightness.hasDDC(display.id)) { await model.loadExtras(for: display) }
     }
 
     private var subtitle: String {

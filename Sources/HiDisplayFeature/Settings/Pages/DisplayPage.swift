@@ -31,9 +31,13 @@ struct DisplayPage: View {
             } else {
                 resolutionSection
                 DisplayBrightnessSection(display: display)
+                DisplayExtrasSection(display: display)
             }
             identitySection
         }
+        // Forced: the monitor's own buttons may have changed volume, contrast or input since the
+        // last read. Keyed on DDC so it runs once the probe has found it.
+        .task(id: model.brightness.hasDDC(display.id)) { await model.loadExtras(for: display, force: true) }
     }
 
     // MARK: Overview

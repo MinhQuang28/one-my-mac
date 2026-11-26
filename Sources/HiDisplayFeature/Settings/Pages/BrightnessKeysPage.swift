@@ -44,10 +44,24 @@ struct BrightnessKeysPage: View {
             }
 
             SettingsSection(
+                tr("Volume keys", "Phím âm lượng"),
+                footer: tr("Applies only while sound plays through a monitor over DisplayPort or HDMI, "
+                            + "where macOS has no volume control. ⌥⇧ makes quarter-size steps.",
+                           "Chỉ áp dụng khi âm thanh phát qua màn hình bằng DisplayPort hoặc HDMI, lúc "
+                            + "macOS không chỉnh được âm lượng. ⌥⇧ cho bước nhỏ bằng ¼.")
+            ) {
+                SettingsRow(
+                    tr("Use the volume keys for monitor speakers", "Dùng phím âm lượng cho loa màn hình"),
+                    isOn: Binding(
+                        get: { model.volumeKeysEnabled },
+                        set: { model.setVolumeKeysEnabled($0) }))
+            }
+
+            SettingsSection(
                 tr("Permission", "Quyền"),
-                footer: tr("Needed to read key presses; only the brightness keys are looked at. Without "
+                footer: tr("Needed to read key presses; only the brightness and volume keys are looked at. Without "
                             + "it, the menu-bar sliders still work.",
-                           "Cần để đọc phím bấm; chỉ các phím độ sáng được xử lý. Không cấp thì thanh "
+                           "Cần để đọc phím bấm; chỉ các phím độ sáng và âm lượng được xử lý. Không cấp thì thanh "
                             + "trượt trên thanh menu vẫn hoạt động.")
             ) {
                 SettingsRow(tr("Accessibility", "Trợ năng")) {

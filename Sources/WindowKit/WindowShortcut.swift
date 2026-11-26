@@ -1,19 +1,20 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// A global keyboard shortcut: virtual key code plus Carbon modifier flags.
-struct WindowShortcut: Hashable {
-    let keyCode: Int
-    let modifiers: Int
+/// A global keyboard shortcut: virtual key code plus Carbon modifier flags. Public because the
+/// clipboard history records its own shortcut with the same rules.
+public struct WindowShortcut: Hashable, Sendable {
+    public let keyCode: Int
+    public let modifiers: Int
 
-    init(keyCode: Int, modifiers: Int) {
+    public init(keyCode: Int, modifiers: Int) {
         self.keyCode = keyCode
         self.modifiers = modifiers
     }
 
     /// From a key press being recorded. Nil without ⌃, ⌥ or ⌘: a bare key (or ⇧ + key) as a global
     /// shortcut would take ordinary typing away from every app.
-    init?(keyCode: Int, flags: NSEvent.ModifierFlags) {
+    public init?(keyCode: Int, flags: NSEvent.ModifierFlags) {
         var modifiers = 0
         if flags.contains(.control) { modifiers |= controlKey }
         if flags.contains(.option) { modifiers |= optionKey }
@@ -24,7 +25,7 @@ struct WindowShortcut: Hashable {
     }
 
     /// Key caps in the order macOS prints them: ⌃⌥⇧⌘ then the key.
-    var keyCaps: [String] {
+    public var keyCaps: [String] {
         var caps: [String] = []
         if modifiers & controlKey != 0 { caps.append("⌃") }
         if modifiers & optionKey != 0 { caps.append("⌥") }
@@ -35,9 +36,9 @@ struct WindowShortcut: Hashable {
 
     // MARK: Persistence ("keyCode:modifiers")
 
-    var stored: String { "\(keyCode):\(modifiers)" }
+    public var stored: String { "\(keyCode):\(modifiers)" }
 
-    init?(stored: String) {
+    public init?(stored: String) {
         let parts = stored.split(separator: ":").compactMap { Int($0) }
         guard parts.count == 2, (0...0xFFFF).contains(parts[0]), parts[1] > 0 else { return nil }
         self.init(keyCode: parts[0], modifiers: parts[1])

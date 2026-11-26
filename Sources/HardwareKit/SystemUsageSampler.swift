@@ -10,12 +10,16 @@ struct CoreTicks: Equatable {
     var nice: UInt32
 }
 
-/// One reading of CPU, memory and GPU load, in percent. nil = not known (yet).
+/// One reading of CPU, memory and GPU load in percent, network speed in bytes per second and free
+/// disk space in bytes. nil = not known (yet).
 public struct SystemUsage: Equatable, Sendable {
     public var cpu: Double?
     public var ram: Double?
     public var gpu: Double?
-    public static let empty = SystemUsage(cpu: nil, ram: nil, gpu: nil)
+    public var networkDown: Double?
+    public var networkUp: Double?
+    public var diskFree: Int64?
+    public static let empty = SystemUsage()
 }
 
 /// Reads CPU / RAM / GPU load straight from Mach and IOKit (no shell, no subprocess).
@@ -31,16 +35,33 @@ final class SystemUsageSampler: @unchecked Sendable {
     }()
 
     private var previous: [CoreTicks]?
+    private var previousNetwork: (counters: NetworkCounters, at: TimeInterval)?
 
-    /// Forget the CPU baseline (after sleep the delta would span the whole nap).
-    func reset() { previous = nil }
+    /// Forget the CPU and network baselines (after sleep the delta would span the whole nap).
+    func reset() {
+        previous = nil
+        previousNetwork = nil
+    }
 
-    func sample(includeGPU: Bool) -> SystemUsage {
+    func sample(includeGPU: Bool, includeNetwork: Bool = false, includeDisk: Bool = false) -> SystemUsage {
         var usage = SystemUsage(cpu: nil, ram: Self.ramPercent(), gpu: includeGPU ? Self.gpuPercent() : nil)
         if let ticks = Self.coreTicks() {
             if let previous { usage.cpu = Self.cpuPercent(from: previous, to: ticks) }
             previous = ticks
         }
+        if includeNetwork, let counters = NetworkDiskReader.networkCounters() {
+            let now = ProcessInfo.processInfo.systemUptime
+            if let last = previousNetwork {
+                let elapsed = now - last.at
+                usage.networkDown = NetworkDiskReader.rate(from: last.counters.received, to: counters.received, elapsed: elapsed)
+                usage.networkUp = NetworkDiskReader.rate(from: last.counters.sent, to: counters.sent, elapsed: elapsed)
+            }
+            previousNetwork = (counters, now)
+        } else {
+            // A gap in sampling must not turn into one huge average when it resumes.
+            previousNetwork = nil
+        }
+        if includeDisk { usage.diskFree = NetworkDiskReader.diskFreeBytes() }
         return usage
     }
 

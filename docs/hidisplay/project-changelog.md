@@ -4,6 +4,11 @@ Newest first. Versions are the value of `AppModel.version`; tags are `v<version>
 
 ## Unreleased
 
+### Added
+- **Monitor volume, contrast and input source over DDC.** Volume slider on the display's panel card;
+  all three on its settings page. Input switching asks for confirmation.
+- **Volume keys for monitor speakers**, off by default, with the same HUD as brightness.
+
 ### Fixed
 - Two monitors of one model reporting the same non-zero (placeholder) serial no longer share a
   profile key; they are keyed by port and flagged for confirmation. Diagnostics export no longer

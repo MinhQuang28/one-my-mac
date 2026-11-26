@@ -14,6 +14,7 @@ public enum SettingsPane: Hashable, Sendable {
     case mouseGestures
     case windows
     case eyeBreaks
+    case clipboard
     case general
 
     public var title: String {
@@ -29,6 +30,7 @@ public enum SettingsPane: Hashable, Sendable {
         case .mouseGestures: return tr("Gestures", "Cử chỉ")
         case .windows: return tr("Windows", "Cửa sổ")
         case .eyeBreaks: return tr("Eye Breaks", "Nghỉ mắt")
+        case .clipboard: return tr("Clipboard", "Clipboard")
         case .general: return tr("General", "Chung")
         }
     }
@@ -58,6 +60,8 @@ public enum SettingsPane: Hashable, Sendable {
                                  "Chia cửa sổ theo nửa, góc phần tư và chuyển sang màn hình khác.")
         case .eyeBreaks: return tr("Short, regular breaks from the screen to rest your eyes.",
                                    "Những quãng nghỉ ngắn, đều đặn để mắt rời khỏi màn hình.")
+        case .clipboard: return tr("Paste back anything you copied earlier.",
+                                   "Dán lại bất cứ thứ gì bạn đã sao chép trước đó.")
         case .general: return tr("Language, startup and everyday utilities.",
                                  "Ngôn ngữ, khởi động và các tiện ích thường dùng.")
         }
@@ -77,6 +81,7 @@ public enum SettingsPane: Hashable, Sendable {
         case .mouseGestures: return .cyan
         case .windows: return .mint
         case .eyeBreaks: return .teal
+        case .clipboard: return .orange
         case .general: return .gray
         }
     }
@@ -94,6 +99,7 @@ public enum SettingsPane: Hashable, Sendable {
         case .mouseGestures: return "hand.draw"
         case .windows: return "rectangle.split.2x1"
         case .eyeBreaks: return "eye"
+        case .clipboard: return "doc.on.clipboard"
         case .general: return "gearshape"
         }
     }

@@ -223,6 +223,26 @@ public actor DDCBrightnessController: DDCControlling {
         await invalidate(key: display.id)
     }
 
+    // MARK: - Other features
+
+    /// Reads a feature other than brightness on the display's existing queue, so it shares the bus
+    /// token and the learned frame shape.
+    public func readFeature(_ code: VCPCode, display: DisplayDevice) async throws -> VCPCodec.Reply {
+        guard let session = session(for: display) else {
+            throw DDCError.unsupported(reason: "no DDC transport for this display")
+        }
+        return try await session.queue.read(
+            code, tolerateChecksumMismatch: session.tolerateChecksumMismatch)
+    }
+
+    /// Fire-and-forget like `setBrightness`: coalesced per feature, never awaiting the wire.
+    public func writeFeature(_ code: VCPCode, raw: UInt16, display: DisplayDevice) async throws {
+        guard let session = session(for: display) else {
+            throw DDCError.unsupported(reason: "no DDC transport for this display")
+        }
+        await session.queue.set(code, raw: raw)
+    }
+
     // MARK: - Session facts
 
     /// Stores persisted facts to seed the next session created for this key. A session that already

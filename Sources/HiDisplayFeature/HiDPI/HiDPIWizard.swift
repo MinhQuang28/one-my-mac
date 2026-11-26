@@ -251,11 +251,11 @@ struct HiDPIWizard: View {
             switch step {
             case .choose:
                 Button(tr("Review…", "Xem lại…")) { step = .review }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(PillButtonStyle(prominent: true))
                     .disabled(!canProceed)
             case .review:
                 Button(tr("Continue", "Tiếp tục")) { step = .apply }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(PillButtonStyle(prominent: true))
                     .disabled(!canProceed || reviewPlan == nil)
             case .apply:
                 Button(tr("Export Only…", "Chỉ xuất…")) {
@@ -267,7 +267,7 @@ struct HiDPIWizard: View {
                     if let display { install(display: display, generated: generated) }
                 }
                 .disabled(isInstalling)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PillButtonStyle(prominent: true))
                 .disabled(!canProceed)
             }
         }

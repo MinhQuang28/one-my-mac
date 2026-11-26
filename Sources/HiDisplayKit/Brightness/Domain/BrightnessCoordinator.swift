@@ -517,6 +517,22 @@ public final class BrightnessCoordinator: ObservableObject {
 
     public func brightness(for key: String) -> Float { states[key]?.requestedValue ?? 1.0 }
 
+    // MARK: - Other DDC features
+
+    /// Whether the last probe found working DDC on a display, whichever controller drives its
+    /// brightness. Volume, contrast and input switching need DDC and nothing else.
+    public func hasDDC(_ key: String) -> Bool { availability[key]?.ddc == true }
+
+    public func readDDCFeature(_ code: VCPCode, for display: DisplayDevice) async throws -> VCPCodec.Reply {
+        guard hasDDC(display.id) else { throw DDCError.unsupported(reason: "no DDC on this display") }
+        return try await ddc.readFeature(code, display: display)
+    }
+
+    public func writeDDCFeature(_ code: VCPCode, raw: UInt16, for display: DisplayDevice) async throws {
+        guard hasDDC(display.id) else { throw DDCError.unsupported(reason: "no DDC on this display") }
+        try await ddc.writeFeature(code, raw: raw, display: display)
+    }
+
     // MARK: - Emergency reset
 
     /// Undoes every software dimming effect immediately.
