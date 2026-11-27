@@ -47,7 +47,8 @@ struct PreviewRenderer {
             try? await Task.sleep(for: .seconds(2.5)) // let sensors, battery and display probes land
             #if DEBUG
             if ProcessInfo.processInfo.environment["ONEMAC_PREVIEW_CLIPBOARD"] != nil {
-                let backdrop = LinearGradient(colors: [.blue, .purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                // Dark, because the off-screen capture cannot draw the window's dark glass.
+                let backdrop = LinearGradient(colors: [Color(white: 0.16), Color(white: 0.08)], startPoint: .top, endPoint: .bottom)
                 await renderInWindow(ClipboardPanelPreview.view().background(backdrop), size: ClipboardPanelPreview.size)
                 exit(0)
             }
