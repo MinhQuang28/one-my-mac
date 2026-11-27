@@ -178,7 +178,8 @@ still records `checksumValid: false` so diagnostics show why a value is suspect.
 ## Throttling
 
 - `setBrightness` records the value and returns; it never awaits the wire.
-- The drain loop writes at most one frame per 40 ms (~25/s).
+- The drain loop writes at most one frame per 60 ms (~16/s). The DDC/CI floor is 50 ms; see "Dell
+  S2725QS" below for why the code does not sit exactly on it.
 - Intermediate values are overwritten, not queued — that is the coalescing.
 - The loop re-checks after each write, so the final value always lands.
 - Writes are never retried: a brightness write is idempotent and superseded a moment later by the next
@@ -187,6 +188,57 @@ still records `checksumValid: false` so diagnostics show why a value is suspect.
 
 `DDCCommandQueueTests` asserts all of this against `FakeDDCTransport`, including that 50 rapid values
 produce far fewer than 50 writes and that the last one is the value released on.
+
+## Support trace: what a customer's machine can tell us
+
+**Settings → Display Diagnostics → Export Diagnostics…** writes a JSON file to Downloads. Besides the
+probe results it now carries, per external display, a `ddcTraces` entry and the display stack's own
+log lines from this launch (`recentLog`, read back from the unified log by `RecentLog`).
+
+The trace (`DDCTracer`, on the display's own queue via `DDCCommandQueue.withExclusiveBus`) reads
+brightness in each frame shape, and if one answers, writes the value one raw step away, reads it back,
+then restores the original and reads again. Every frame is recorded as hex with its outcome. Nothing is
+written unless a read succeeded first.
+
+| `verdict` | Meaning | Where to look next |
+| --- | --- | --- |
+| `noTransport` | No `IOAVService` could be bound; `bindFailure` says why | Identity matching, or a dock that hides the display |
+| `noReply` | Bound, every frame failed. Outcomes say `request failed` or `reply failed` | The Mac's port, cable or dock — see `link` and `machineModel` |
+| `nullReply` | The monitor answered `6E 80 BE` in both shapes | DDC/CI switched off in the monitor's menu |
+| `writeIgnored` | Read works, the write returned success, the old value came back | Monitor has brightness locked (HDR), or drops the frame |
+| `writeAccepted` | Reads and writes both work | The fault is in the app above the wire, not in DDC |
+| `readbackFailed` | First read worked, the read-back did not | Flaky bus; compare step timings |
+
+`link` copies the registry's `Transport` dictionary (`Upstream`/`Downstream`), `Location` and
+`EPICProviderClass` for the display, and `environment.machineModel` is the Mac's model identifier.
+Together they answer the commonest question — is this the built-in HDMI port of a Mac that cannot
+carry DDC over it.
+
+## Dell S2725QS (27 Plus 4K): what is known
+
+No hardware on the bench. Compiled from Dell's user guide and other projects' notes on the family,
+so that a customer report can be read against it. None of it is verified here.
+
+- **Brightness is plain VCP `0x10`**, range 0–100; no vendor-specific code is involved. The S2725QC
+  (same family, USB-C) lists `10 12 14 … 60 62 …` in its capabilities string and is driven at chip
+  `0x37`, sub-address `0x51`, with frames that do *not* repeat the host address
+  ([Sankew/Dell-Control](https://github.com/Sankew/Dell-Control)). That is `withoutHostAddress`, which
+  the queue learns on its own.
+- **The monitor has two HDMI 2.1 ports and one DisplayPort 1.4, and no USB-C.** It ships with an HDMI
+  cable only. A Mac user therefore most likely plugs it into the Mac's built-in HDMI port, and DDC
+  over that port is unsupported by MonitorControl on every M1 Mac and on the entry M2 Mac mini
+  ([MonitorControl README](https://github.com/MonitorControl/MonitorControl#supported-displays)).
+  This is the first thing to rule out; a USB-C→DisplayPort cable is the workaround.
+- **DDC/CI can be switched off**: OSD → Others → DDC/CI.
+- **HDR locks brightness.** The user guide: brightness and contrast are unavailable while Smart HDR
+  is on and HDR content is displayed. Writes are then accepted on the wire and ignored — the
+  `writeIgnored` verdict.
+- **Writes too close together are dropped without an error.** Dell-Control measured the S2725QC
+  ignoring a command that arrives less than about 50 ms after a write, and waits 60 ms; hence
+  `DDC.writeInterval`.
+- m1ddc and MonitorControl send every write twice, because a single write is occasionally dropped by
+  some monitors. This app sends once. Not changed without evidence: if a trace ever shows
+  `writeAccepted` on a display whose slider still misses, repeating the final write is the fix to try.
 
 ## Probing must not change what is on screen
 

@@ -5,9 +5,17 @@ Newest first. Versions are the value of `AppModel.version`; tags are `v<version>
 ## Unreleased
 
 ### Added
+- **Live DDC test in the diagnostics export.** The support report now records a raw conversation
+  with each external display — read, one-step write, read-back, restore — with a verdict, how the
+  display is connected, the Mac's model identifier, and the display stack's log lines from this
+  launch. See docs/ddc.md, "Support trace".
 - **Monitor volume, contrast and input source over DDC.** Volume slider on the display's panel card;
   all three on its settings page. Input switching asks for confirmation.
 - **Volume keys for monitor speakers**, off by default, with the same HUD as brightness.
+
+### Changed
+- DDC frames are spaced 60 ms apart instead of 50 ms: Dell's S2725Q family drops a command that
+  arrives sooner after a write.
 
 ### Fixed
 - Two monitors of one model reporting the same non-zero (placeholder) serial no longer share a

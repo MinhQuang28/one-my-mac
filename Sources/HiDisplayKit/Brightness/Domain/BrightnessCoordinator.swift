@@ -533,6 +533,21 @@ public final class BrightnessCoordinator: ObservableObject {
         try await ddc.writeFeature(code, raw: raw, display: display)
     }
 
+    /// A raw DDC conversation with every external display, for the support report.
+    ///
+    /// Not gated on `hasDDC`: the displays worth tracing are exactly the ones the probe gave up on.
+    public func ddcTraces(for displays: [DisplayDevice]) async -> [DDCTrace] {
+        var traces: [DDCTrace] = []
+        for display in displays where !display.isBuiltIn {
+            let conversation = await ddc.trace(display: display)
+            // The registry half scans IOKit; keep it off the main actor like discovery does.
+            traces.append(await Task.detached {
+                DDCTrace.capture(display: display, conversation: conversation)
+            }.value)
+        }
+        return traces
+    }
+
     // MARK: - Emergency reset
 
     /// Undoes every software dimming effect immediately.

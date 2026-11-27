@@ -74,9 +74,11 @@ public enum DDC {
     /// (`DDC_MCDP_READ_WAIT`) — no separate delay is needed for that case.
     public static let replyDelay: Duration = .milliseconds(50)
     /// Minimum spacing between consecutive host frames. DDC/CI 1.1 asks for at least 50 ms between
-    /// commands; this was 40 ms — fine for every panel on the test bench, but below the spec's
-    /// floor, and the coalescing already makes write throughput a non-issue.
-    public static let writeInterval: Duration = .milliseconds(50)
+    /// commands, and sitting exactly on that floor is not enough everywhere: Dell's S2725Q family is
+    /// reported to drop, without any error, a command arriving less than about 50 ms after a write
+    /// (docs/ddc.md, "Dell S2725QS"). 60 ms clears it, and the coalescing already makes write
+    /// throughput a non-issue.
+    public static let writeInterval: Duration = .milliseconds(60)
 }
 
 /// Encoding and decoding of DDC/CI frames.

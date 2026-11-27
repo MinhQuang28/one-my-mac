@@ -92,6 +92,8 @@ actor FakeDDCController: DDCControlling {
     func writeFeature(_ code: VCPCode, raw: UInt16, display: DisplayDevice) async throws {
         featureWrites.append((display.id, code, raw))
     }
+
+    func trace(display: DisplayDevice) async -> DDCTrace.Conversation? { nil }
 }
 
 /// Stand-in for both `GammaBrightnessController` and `ShadeBrightnessController`. One fake covers

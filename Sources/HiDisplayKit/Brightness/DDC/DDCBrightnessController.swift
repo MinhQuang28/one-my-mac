@@ -243,6 +243,19 @@ public actor DDCBrightnessController: DDCControlling {
         await session.queue.set(code, raw: raw)
     }
 
+    // MARK: - Support trace
+
+    /// Records a raw conversation with the display for the support report. `nil` when no transport
+    /// binds — the caller reports why (`DDCTrace.capture`).
+    ///
+    /// On the display's own queue, so it waits for a drag in progress instead of colliding with it.
+    public func trace(display: DisplayDevice) async -> DDCTrace.Conversation? {
+        guard !display.isBuiltIn, let session = session(for: display) else { return nil }
+        return await session.queue.withExclusiveBus { transport in
+            await DDCTracer.run(on: transport)
+        }
+    }
+
     // MARK: - Session facts
 
     /// Stores persisted facts to seed the next session created for this key. A session that already

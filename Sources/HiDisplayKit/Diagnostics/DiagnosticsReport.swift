@@ -13,6 +13,9 @@ public struct DiagnosticsReport: Codable, Sendable {
         public var appVersion: String
         public var systemVersion: String
         public var architecture: String
+        /// Mac model identifier (`Mac14,3`). Not identifying, and it decides the commonest DDC
+        /// question: whether the built-in HDMI port on this machine can carry it at all.
+        public var machineModel: String?
         /// Whether each private-API shim resolved, and why not if it did not. The single most useful
         /// field when a user reports "brightness does nothing".
         public var shims: [String: String]
@@ -59,6 +62,10 @@ public struct DiagnosticsReport: Codable, Sendable {
     public var environment: Environment
     public var displays: [DisplayReport]
     public var brightness: [BrightnessReport]
+    /// One raw DDC conversation per external display. Empty when the caller did not run them.
+    public var ddcTraces: [DDCTrace] = []
+    /// The display stack's log lines from this launch — see `RecentLog`.
+    public var recentLog: [String] = []
 
     public func jsonData() throws -> Data {
         let encoder = JSONEncoder()
@@ -80,12 +87,15 @@ public enum DiagnosticsBuilder {
         chosenControllers: [String: BrightnessControllerKind],
         appVersion: String,
         ddcChipAddresses: [String: UInt32] = [:],
+        ddcTraces: [DDCTrace] = [],
+        recentLog: [String] = [],
         now: Date = Date()
     ) -> DiagnosticsReport {
         let environment = DiagnosticsReport.Environment(
             appVersion: appVersion,
             systemVersion: ProcessInfo.processInfo.operatingSystemVersionString,
             architecture: currentArchitecture(),
+            machineModel: machineModel(),
             shims: [
                 "IOAVService": IOAVServiceShim.shared.isAvailable
                     ? "available"
@@ -137,14 +147,25 @@ public enum DiagnosticsBuilder {
                     uniqueKeysWithValues: (probeDetails[display.id] ?? [:]).map { ($0.key.rawValue, $0.value) }),
                 warning: warnings[display.id],
                 requestedValue: brightnessStates[display.id]?.requestedValue,
-                ddcChipAddress: ddcChipAddresses[display.id].map { "0x\(String($0, radix: 16))" })
+                ddcChipAddress: ddcChipAddresses[display.id].map { "0x\(String($0, radix: 16))" }
+                    ?? ddcTraces.first { $0.stableKey == display.id }?.chipAddress)
         }
 
         return DiagnosticsReport(
             generatedAt: now,
             environment: environment,
             displays: displayReports,
-            brightness: brightnessReports)
+            brightness: brightnessReports,
+            ddcTraces: ddcTraces,
+            recentLog: recentLog)
+    }
+
+    static func machineModel() -> String? {
+        var size = 0
+        guard sysctlbyname("hw.model", nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        var buffer = [CChar](repeating: 0, count: size)
+        guard sysctlbyname("hw.model", &buffer, &size, nil, 0) == 0 else { return nil }
+        return String(cString: buffer)
     }
 
     static func currentArchitecture() -> String {

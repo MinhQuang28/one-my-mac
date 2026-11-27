@@ -149,6 +149,21 @@ public actor DDCCommandQueue {
         }
     }
 
+    /// Hands `body` the transport with the wire to itself, for a diagnostic that needs raw frames.
+    ///
+    /// A support trace talking to the monitor through a transport of its own would interleave with
+    /// a drag in progress, and the readings would describe the collision rather than the monitor.
+    /// The spacing interval is paid before the bus is released, same as after any other frame.
+    public func withExclusiveBus<T: Sendable>(
+        _ body: @Sendable (DDCTransport) async -> T
+    ) async -> T {
+        await acquireBus()
+        let result = await body(transport)
+        try? await Task.sleep(for: writeInterval)
+        releaseBus()
+        return result
+    }
+
     /// Sends every pending value in order, spaced by `writeInterval`, until nothing new arrives.
     private func drain() async {
         defer { isDraining = false }

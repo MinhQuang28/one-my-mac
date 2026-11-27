@@ -26,6 +26,7 @@ final class AppModel: ObservableObject {
     @Published var ambiguousKeys: Set<String> = []
     /// Last diagnostics export path, shown in Settings after an export.
     @Published var lastExportPath: String?
+    @Published var isExportingDiagnostics = false
     // One error slot per place it is shown. A single shared `lastError` put a failed diagnostics
     // export under the Resolution picker and a failed resolution change on the Diagnostics page.
     /// The last resolution change that failed or could not be reverted. Shown with the picker.
@@ -530,7 +531,22 @@ final class AppModel: ObservableObject {
 
     // MARK: - Diagnostics
 
+    /// Writes the support report, after talking to every external display over DDC.
+    ///
+    /// The conversation is what makes the file worth sending: a probe result says a monitor did not
+    /// answer, the recorded frames say whether it could not be reached, refused, or ignored a write.
     func exportDiagnostics() {
+        guard !isExportingDiagnostics else { return }
+        isExportingDiagnostics = true
+        Task {
+            let traces = await brightness.ddcTraces(for: displays)
+            let log = await Task.detached { RecentLog.lines() }.value
+            writeDiagnostics(ddcTraces: traces, recentLog: log)
+            isExportingDiagnostics = false
+        }
+    }
+
+    private func writeDiagnostics(ddcTraces: [DDCTrace], recentLog: [String]) {
         let report = DiagnosticsBuilder.build(
             displays: displays,
             ambiguousKeys: ambiguousKeys,
@@ -545,7 +561,9 @@ final class AppModel: ObservableObject {
                     brightness.controller(for: display.id).map { (display.id, $0) }
                 },
                 uniquingKeysWith: { first, _ in first }),
-            appVersion: Self.version)
+            appVersion: Self.version,
+            ddcTraces: ddcTraces,
+            recentLog: recentLog)
 
         do {
             let data = try report.jsonData()

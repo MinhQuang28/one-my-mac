@@ -166,7 +166,7 @@ struct PanelFooter: View {
 }
 
 enum AppInfo {
-    static let version = "0.2.0"
+    static let version = "0.2.1"
     /// Logo glyph: menu bar, panel header and the app icon (tools/make-icon.swift).
     static let symbol = "gauge.with.dots.needle.67percent"
 }

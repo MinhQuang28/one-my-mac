@@ -24,10 +24,13 @@ struct DiagnosticsPage: View {
             ) {
                 SettingsRow(
                     tr("Support report", "Báo cáo hỗ trợ"),
-                    detail: tr("A JSON file describing your displays and why each brightness probe "
-                                + "succeeded or failed.",
-                               "Tệp JSON mô tả các màn hình và lý do mỗi lần dò độ sáng thành công hay "
-                                + "thất bại.")
+                    detail: tr("A JSON file describing your displays, why each brightness probe "
+                                + "succeeded or failed, and a live DDC test of each external display. "
+                                + "The test moves brightness by one step for a moment, then puts it "
+                                + "back.",
+                               "Tệp JSON mô tả các màn hình, lý do mỗi lần dò độ sáng thành công hay "
+                                + "thất bại, và một bài thử DDC trực tiếp trên từng màn hình ngoài. "
+                                + "Bài thử đổi độ sáng một nấc trong chốc lát rồi trả lại như cũ.")
                 ) {
                     HStack {
                         if let path = model.lastExportPath {
@@ -35,7 +38,10 @@ struct DiagnosticsPage: View {
                                 NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: "")
                             }
                         }
-                        Button(tr("Export Diagnostics…", "Xuất chẩn đoán…")) { model.exportDiagnostics() }
+                        Button(model.isExportingDiagnostics
+                               ? tr("Testing displays…", "Đang thử màn hình…")
+                               : tr("Export Diagnostics…", "Xuất chẩn đoán…")) { model.exportDiagnostics() }
+                            .disabled(model.isExportingDiagnostics)
                     }
                 }
                 if let path = model.lastExportPath {
